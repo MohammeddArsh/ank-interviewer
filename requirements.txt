@@ -1,8 +1,9 @@
-fastapi
-uvicorn
-python-multipart
-openai
-faster-whisper
-gtts
-ollama
-python-dotenv
+fastapi==0.128.8
+uvicorn==0.39.0
+python-multipart==0.0.20
+openai==2.30.0
+faster-whisper==1.2.1
+gtts==2.5.4
+ollama==0.6.1
+python-dotenv==1.2.1
+prometheus-client==0.21.1

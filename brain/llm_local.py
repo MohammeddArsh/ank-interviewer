@@ -1,5 +1,7 @@
 import ollama
+
 from config import LLM_MODEL_LOCAL
+
 
 def get_reply(messages: list) -> tuple:
     """Returns (reply_text, token_usage_dict) — local mode has no token counts."""

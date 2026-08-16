@@ -1,8 +1,10 @@
-import sounddevice as sd
-from scipy.io.wavfile import write
 import os
 import uuid
-from config import SAMPLE_RATE, RECORD_SECONDS, CHANNELS
+
+import sounddevice as sd
+from scipy.io.wavfile import write
+
+from config import CHANNELS, RECORD_SECONDS, SAMPLE_RATE, TEMP_DIR
 
 
 def record_audio() -> str:
@@ -17,7 +19,7 @@ def record_audio() -> str:
     sd.wait()
     print("Got it.")
 
-    tmp_path = os.path.join(os.path.expanduser("~"), "rec_" + uuid.uuid4().hex + ".wav")
+    tmp_path = os.path.join(TEMP_DIR, "rec_" + uuid.uuid4().hex + ".wav")
     write(tmp_path, SAMPLE_RATE, audio)
     return tmp_path
 

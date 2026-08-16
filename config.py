@@ -1,4 +1,6 @@
 import os
+import tempfile
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,6 +10,10 @@ load_dotenv()
 MODE = os.getenv("MODE", "openai")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Writable scratch space for TTS/uploaded audio.
+# In containers (Docker/Azure) $HOME may not be writable, so default to tempdir.
+TEMP_DIR = os.getenv("TEMP_DIR", tempfile.gettempdir())
 
 # Audio settings
 SAMPLE_RATE = 16000

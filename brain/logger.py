@@ -1,8 +1,8 @@
-import json
 import csv
+import io
+import json
 import os
 import time
-import io
 from datetime import datetime
 
 

@@ -1,18 +1,20 @@
 import os
+import subprocess
 import uuid
 import warnings
-import subprocess
+
+from config import TEMP_DIR
 
 FFMPEG_DIR = r"C:\Users\mohda\ffmpeg-master-latest-win64-gpl\bin"
 os.environ["PATH"] += os.pathsep + FFMPEG_DIR
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="pydub")
 
-from gtts import gTTS
+from gtts import gTTS  # noqa: E402 - must set PATH before importing gtts deps
 
 
 def speak_to_file(text):
     """Generate TTS audio and return the file path (for web use)."""
-    tmp_path = os.path.join(os.path.expanduser("~"), "tts_" + uuid.uuid4().hex + ".mp3")
+    tmp_path = os.path.join(TEMP_DIR, "tts_" + uuid.uuid4().hex + ".mp3")
     tts = gTTS(text=text, lang="en", slow=False)
     tts.save(tmp_path)
     return tmp_path

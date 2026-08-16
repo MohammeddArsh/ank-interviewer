@@ -6,18 +6,17 @@ Run this file to start the assistant:  python main.py
 Say "goodbye", "exit", or "quit" to stop.
 """
 
-import sys
 import os
+import sys
 
 # Make sure sibling folders are importable
 sys.path.insert(0, os.path.dirname(__file__))
 
-from audio.capture import record_audio, cleanup
+from audio.capture import cleanup, record_audio
 from audio.stt import transcribe
 from audio.tts import speak
 from brain.llm import get_reply
 from brain.memory import ConversationMemory
-
 
 EXIT_PHRASES = {"goodbye", "exit", "quit", "bye", "stop"}
 

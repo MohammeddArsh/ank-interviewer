@@ -1,4 +1,5 @@
 from faster_whisper import WhisperModel
+
 from config import WHISPER_MODEL
 
 print(f"Loading local Whisper '{WHISPER_MODEL}' model...")

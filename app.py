@@ -1,29 +1,38 @@
-from fastapi import FastAPI, UploadFile, File
+import glob
+import os
+import sys
+import time
+import uuid
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import os
-import uuid
-import time
-import glob
-import sys
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from audio.stt import transcribe
 from audio.tts import speak_to_file
 from brain.llm import get_reply
-from brain.memory import ConversationMemory
 from brain.logger import SessionLogger
+from brain.memory import ConversationMemory
+from config import TEMP_DIR
+
+CHAT_REQUESTS = Counter("ank_chat_requests_total", "Total /chat requests")
+CHAT_LATENCY = Histogram(
+    "ank_chat_latency_seconds",
+    "Chat request latency in seconds",
+    buckets=(0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
+)
 
 
 def cleanup_temp_files():
-    home = os.path.expanduser("~")
     patterns = ["tts_*.mp3", "upload_*.wav", "rec_*.wav"]
     removed = 0
     for pattern in patterns:
-        for f in glob.glob(os.path.join(home, pattern)):
+        for f in glob.glob(os.path.join(TEMP_DIR, pattern)):
             try:
                 os.remove(f)
                 removed += 1
@@ -59,8 +68,8 @@ def index():
 
 
 @app.post("/chat")
-async def chat(audio: UploadFile = File(...)):
-    audio_path = os.path.join(os.path.expanduser("~"), "upload_" + uuid.uuid4().hex + ".wav")
+async def chat(audio: UploadFile = File(...)):  # noqa: B008 - FastAPI dependency injection
+    audio_path = os.path.join(TEMP_DIR, "upload_" + uuid.uuid4().hex + ".wav")
     with open(audio_path, "wb") as f:
         f.write(await audio.read())
 
@@ -76,8 +85,10 @@ async def chat(audio: UploadFile = File(...)):
     memory.add_user_message(user_text)
     memory.trim_if_needed()
 
+    CHAT_REQUESTS.inc()
     start_time = time.time()
     reply, token_usage = get_reply(memory.get_messages())
+    CHAT_LATENCY.observe(time.time() - start_time)
     response_time_ms = (time.time() - start_time) * 1000
 
     memory.add_assistant_message(reply)
@@ -95,7 +106,7 @@ async def chat(audio: UploadFile = File(...)):
 
 @app.get("/audio/{filename}")
 def get_audio(filename: str):
-    path = os.path.join(os.path.expanduser("~"), filename)
+    path = os.path.join(TEMP_DIR, filename)
     return FileResponse(path, media_type="audio/mpeg")
 
 
@@ -137,6 +148,16 @@ def export_csv():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # Mount static LAST so it doesn't intercept API routes

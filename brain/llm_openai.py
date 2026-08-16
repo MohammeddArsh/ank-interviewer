@@ -1,5 +1,6 @@
 from openai import OpenAI
-from config import OPENAI_API_KEY, LLM_MODEL_OPENAI
+
+from config import LLM_MODEL_OPENAI, OPENAI_API_KEY
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
