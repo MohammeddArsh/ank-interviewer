@@ -1,5 +1,7 @@
 # Ank — AI Voice Assistant
 
+[![CI](https://github.com/MohammeddArsh/ank-voice-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/MohammeddArsh/ank-voice-assistant/actions/workflows/ci.yml)
+
 > A full-stack conversational AI assistant with a speech interface, built with Python and a clean dark web UI.
 > Speak naturally, get intelligent responses spoken back to you in real time.
 
@@ -13,8 +15,9 @@
 |---|---|---|
 | 🚀 **Render** (primary) | [ank-voice-assistant.onrender.com](https://ank-voice-assistant.onrender.com) | Always on — kept alive via UptimeRobot |
 | 🚄 **Railway** (backup) | [ank-voice-assistant.up.railway.app](https://ank-voice-assistant.up.railway.app) | Active until March 2026, then expires |
+| ☁️ **Azure Container Apps** (CI/CD) | [ank-voice-assistant.kindriver-c8b791e4.germanywestcentral.azurecontainerapps.io](https://ank-voice-assistant.kindriver-c8b791e4.germanywestcentral.azurecontainerapps.io) | Docker image deployed via GitHub Actions — scales to zero on the free tier |
 
-> **Note:** Render is the primary deployment, kept always on using UptimeRobot health checks. Railway is a backup that runs until the free trial expires in March 2026.
+> **Note:** Render is the primary deployment, kept always on using UptimeRobot health checks. Railway is a backup that runs until the free trial expires in March 2026. The Azure Container App demonstrates the Docker + CI/CD pipeline — it cold-starts on first request (scale-to-zero).
 
 ---
 
@@ -106,7 +109,29 @@ Your voice → Whisper STT → GPT-4o-mini → gTTS → Spoken response
 | Text-to-Speech | gTTS | Google TTS, free |
 | Frontend | Vanilla HTML / CSS / JS | No framework, single file |
 | Audio Capture | Web MediaRecorder API | Browser-native |
-| Deployment | Render + UptimeRobot / Railway | Auto-deploy from GitHub, always on via health check pings |
+| Deployment | Render + UptimeRobot / Railway / Azure Container Apps | Auto-deploy from GitHub, always on via health check pings |
+
+---
+
+## Docker & CI/CD
+
+The app ships as a containerized service with a full CI/CD pipeline:
+
+- **`Dockerfile`** — multi-stage build (`python:3.13-slim`, non-root user), runs `uvicorn app:app`.
+- **`docker-compose.yml`** — local development; app service plus an optional `ollama` service for fully-local inference mode.
+- **`.github/workflows/ci.yml`** — on every push/PR: `ruff` lint → `pytest` → build & push the image to GitHub Container Registry → on `main`, deploy to **Azure Container Apps**.
+- **Health & monitoring** — `/health` and `/healthz` liveness endpoints; `/metrics` exposes Prometheus metrics (request counter, latency histogram, process/GC stats).
+
+### Local build
+
+```bash
+docker compose build
+docker compose up            # http://localhost:8000
+```
+
+### Azure Container Apps — cost note
+
+The Azure deployment runs on the **free tier** (180,000 vCPU-seconds / 360,000 GiB-seconds / 2M requests per month) with `min-replicas 0`, so it **scales to zero** when idle — it wakes on first request and costs nothing while unused. Secrets (`OPENAI_API_KEY`) are stored in Azure Container App secrets, never in the image or repo.
 
 ---
 
@@ -227,6 +252,8 @@ ank-voice-assistant/
 | `GET` | `/analytics` | Returns live session analytics |
 | `GET` | `/export/json` | Downloads full session as JSON |
 | `GET` | `/export/csv` | Downloads session turns as CSV |
+| `GET` | `/health`, `/healthz` | Liveness probes (200 OK) |
+| `GET` | `/metrics` | Prometheus metrics (counter, latency histogram, process/GC) |
 
 ---
 
