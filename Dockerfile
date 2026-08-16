@@ -20,7 +20,9 @@ COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 RUN groupadd --gid 1000 app \
-    && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app
+    && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app \
+    && mkdir -p /app/logs \
+    && chown -R app:app /app
 
 COPY --chown=app:app app.py config.py requirements.txt ./
 COPY --chown=app:app audio ./audio
