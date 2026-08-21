@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 
@@ -5,11 +6,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Set MODE as an environment variable in Railway/Render dashboard
-# Defaults to "openai" if not set
-MODE = os.getenv("MODE", "openai")
+# Set MODE as an environment variable in Railway/Render dashboard.
+# "openrouter" = OpenRouter LLM + local faster-whisper (free, default) ·
+# "local" = Ollama + faster-whisper (fully offline).
+MODE = os.getenv("MODE", "openrouter")
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+# Free-tier OpenRouter models rotate constantly (retired to paid, replaced, etc.).
+# By default the available free models are auto-discovered at runtime; set
+# OPENROUTER_MODELS to a JSON array to PIN a specific list and skip discovery.
+OPENROUTER_MODELS = json.loads(os.getenv("OPENROUTER_MODELS", "[]"))
+
+# Used only if discovery fails (no key / network down). Keep recent, still-known
+# free slugs + the openrouter/free router as the ultimate always-available fallback.
+BOOTSTRAP_OPENROUTER_MODELS = [
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "openrouter/free",
+]
+FREE_MODEL_REFRESH_SECONDS = int(os.getenv("FREE_MODEL_REFRESH_SECONDS", str(6 * 3600)))
 
 # Writable scratch space for TTS/uploaded audio.
 # In containers (Docker/Azure) $HOME may not be writable, so default to tempdir.
@@ -20,9 +39,13 @@ SAMPLE_RATE = 16000
 RECORD_SECONDS = 5
 CHANNELS = 1
 
-# LLM settings
-LLM_MODEL_OPENAI = "gpt-4o-mini"
-LLM_MODEL_LOCAL  = "llama3.2"
+# Interview settings
+MAX_QUESTIONS = int(os.getenv("MAX_QUESTIONS", "6"))
+FOLLOW_UPS_PER_QUESTION = int(os.getenv("FOLLOW_UPS_PER_QUESTION", "1"))
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+
+# LLM settings (local mode only)
+LLM_MODEL_LOCAL = os.getenv("LLM_MODEL_LOCAL", "llama3.2")
 
 # Whisper settings (local mode only)
 WHISPER_MODEL = "base"
