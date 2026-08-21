@@ -19,6 +19,7 @@ from brain.llm import get_reply
 from brain.logger import SessionLogger
 from brain.memory import ConversationMemory
 from config import TEMP_DIR
+from interview.routes import router as interview_router
 
 CHAT_REQUESTS = Counter("ank_chat_requests_total", "Total /chat requests")
 CHAT_LATENCY = Histogram(
@@ -57,6 +58,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(interview_router)
 
 memory = ConversationMemory()
 logger = SessionLogger()

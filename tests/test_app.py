@@ -3,8 +3,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-os.environ.setdefault("MODE", "openai")
-os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy")
+os.environ.setdefault("MODE", "openrouter")
+os.environ.setdefault("OPENROUTER_API_KEY", "sk-test-dummy")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +21,15 @@ def test_index_serves_ui(client):
     r = client.get("/")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
+
+
+def test_index_has_interviewer_ui(client):
+    r = client.get("/")
+    body = r.text
+    assert "AI Mock Interviewer" in body
+    for persona in ("Recruiter", "Technical Lead", "HR Manager", "Executive"):
+        assert persona in body
+    assert "av-mouth-wide" in body
 
 
 def test_health(client):
