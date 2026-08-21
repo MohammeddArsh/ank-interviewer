@@ -7,3 +7,5 @@ __pycache__/
 *.mp3
 .DS_Store
 .ipynb_checkpoints/
+Code.code-workspace
+logs/

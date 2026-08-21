@@ -1,9 +1,10 @@
-# Ank — AI Voice Assistant
+# Ank — AI Mock Interviewer
 
 [![CI](https://github.com/MohammeddArsh/ank-voice-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/MohammeddArsh/ank-voice-assistant/actions/workflows/ci.yml)
 
-> A full-stack conversational AI assistant with a speech interface, built with Python and a clean dark web UI.
-> Speak naturally, get intelligent responses spoken back to you in real time.
+> A full-stack AI mock interviewer with a voice interface — paste a **job description** and your **resume**, and a realistic AI interviewer conducts a natural, sectioned interview with follow-up questions and a full scorecard at the end. Powered by **OpenRouter free-tier open-source LLMs** + local faster-whisper.
+>
+> Pick an interviewer persona, watch them speak (animated avatar with lip-sync or a live circular waveform), answer by voice, and get an honest evaluation.
 
 ![Ank Demo](docs/demo.png)
 
@@ -23,32 +24,30 @@
 
 ## Overview
 
-Ank is a full-stack voice assistant that integrates speech recognition, large language model inference, and text-to-speech synthesis into a seamless conversational experience. Built to demonstrate end-to-end AI pipeline integration, from raw microphone audio to spoken AI responses, using production-grade APIs.
-
-The system supports two modes — **OpenAI** (cloud, deployed) and **Local** (Ollama + faster-whisper, offline) — switchable with a single config change. It also includes session logging, live analytics and data export designed to support empirical human-AI interaction research.
+Ank is a full-stack AI virtual mock interviewer built on **OpenRouter's free-tier open-source LLMs** (no credit card) plus local faster-whisper and free gTTS. It reads a job description and a resume, generates a tailored **sectioned interview plan**, then conducts the interview conversationally — asking one question at a time, probing with **follow-up questions** on your answers, and moving between sections with natural spoken transitions. When the interview wraps up, it produces a **scorecard** (0–100) with strengths, improvement areas and a verdict.
 
 **Live interaction flow:**
 
 ```
-Your voice → Whisper STT → GPT-4o-mini → gTTS → Spoken response
+Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS → spoken reply (subtitle + lip-sync)
 ```
 
 ---
 
 ## Features
 
-- **Voice input** — Click the mic button or hold Spacebar to record
-- **Real-time waveform** — Live symmetric audio visualizer while speaking
-- **Conversational memory** — Remembers full session context across turns
-- **Spoken responses** — Every reply converted to audio and played automatically
-- **Chat history** — Full conversation displayed on screen with replay buttons
-- **Session analytics** — Live stats: turn count, response times, session duration, token usage
-- **Token tracking** — Tracks prompt, completion and total tokens per turn and per session
-- **Data export** — Download session data as JSON or CSV for research analysis
-- **Consent banner** — GDPR-aware data usage notice shown at the start of every session
-- **Dual mode** — Switch between OpenAI APIs and fully local models
-- **Mobile responsive** — Works on phones and tablets
-- **Auto cleanup** — Temp audio files removed on startup, shutdown and reset
+- **AI mock interviewer** — realistic, sectioned interviews built from the JD + your resume
+- **Natural conversation** — warm greeting, section transitions that reference your answers, one probing follow-up per answer, closing with "any questions for me?"
+- **Final scorecard** — 0–100 score, strengths, areas to improve, and a spoken verdict
+- **Animated interviewer avatar** — illustrated personas (Recruiter, Technical Lead, HR, Executive) with lip-sync, blinking and head motion while speaking; toggle to a live circular waveform
+- **Live subtitles** — the interviewer's speech appears as subtitles in sync with each sentence
+- **Resume & JD input** — paste text or upload PDF / DOCX / TXT (parsed server-side)
+- **Voice answers** — click the mic or hold Spacebar to answer; your transcript is shown back
+- **Skip / end early** — move past a question or finish the interview any time
+- **Free stack** — OpenRouter free-tier open-source LLMs (with automatic model fallbacks) + local faster-whisper for transcription, gTTS for speech
+- **Dual mode** — `openrouter` (cloud, free, default) or `local` (Ollama + faster-whisper, fully offline)
+- **Mobile responsive** — works on phones and tablets
+- **Auto cleanup** — temp audio/files removed on startup, shutdown and reset
 
 ---
 
@@ -56,46 +55,45 @@ Your voice → Whisper STT → GPT-4o-mini → gTTS → Spoken response
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    Browser (UI)                     │
-│  MediaRecorder API → WAV blob → fetch(/chat)        │
-│  ← JSON { user_text, reply, audio_url, analytics }  │
-│  Audio() playback ← /audio/{file}                   │
-│  Export ← /export/json  /export/csv                 │
-└────────────────────┬────────────────────────────────┘
-                     │ HTTP
-┌────────────────────▼────────────────────────────────┐
-│                FastAPI Backend                      │
-│                                                     │
-│  /chat                                              │
-│    ├── audio/stt.py      (router → openai or local) │
-│    ├── brain/memory.py   (multi-turn history)       │
-│    ├── brain/llm.py      (router → openai or local) │
-│    ├── brain/logger.py   (session logging)          │
-│    └── audio/tts.py      (gTTS → MP3)               │
-│                                                     │
-│  /audio/{file}    serves generated MP3              │
-│  /reset           clears memory, session, files     │
-│  /export/json     downloads session as JSON         │
-│  /export/csv      downloads session as CSV          │
-│  /analytics       returns live session stats        │
-└─────────────────────────────────────────────────────┘
+│                    Browser (UI)                      │
+│  Paste/upload JD + resume → fetch(/interview/start) │
+│  MediaRecorder API → WAV/WebM blob → /interview/answer
+│  ← JSON { utterance, segments, state }               │
+│  Audio() playback ← /audio/{file} + lip-sync avatar  │
+└────────────────────────┬─────────────────────────────┘
+                         │ HTTP
+┌────────────────────────▼─────────────────────────────┐
+│                FastAPI Backend                        │
+│                                                       │
+│  /interview/*                                        │
+│    ├── interview/extractor.py  (PDF/DOCX/TXT parse) │
+│    ├── interview/plan.py       (sections + questions)│
+│    ├── interview/engine.py     (follow-ups,          │
+│    │                            transitions, closing)│
+│    ├── interview/evaluator.py  (scorecard)           │
+│    ├── audio/stt_local.py      (faster-whisper)      │
+│    └── audio/tts.py            (gTTS → subtitle chunks)
+│                                                       │
+│  /chat            legacy general voice chat (server) │
+│  /audio/{file}    serves generated MP3               │
+│  /health /healthz /metrics                           │
+└──────────────────────────────────────────────────────┘
 ```
 
 **Component breakdown:**
 
 | Component | File | Responsibility |
 |---|---|---|
-| Web UI | `static/index.html` | Recording, waveform, chat, analytics |
+| Web UI | `static/index.html` | Setup, interview, results; avatar + waveform + subtitles |
 | API Server | `app.py` | Routing, session management, cleanup |
-| STT Router | `audio/stt.py` | Routes to OpenAI or local Whisper |
-| STT OpenAI | `audio/stt_openai.py` | Transcription via OpenAI Whisper API |
-| STT Local | `audio/stt_local.py` | Transcription via faster-whisper locally |
-| LLM Router | `brain/llm.py` | Routes to OpenAI or Ollama |
-| LLM OpenAI | `brain/llm_openai.py` | GPT-4o-mini via OpenAI API + token tracking |
-| LLM Local | `brain/llm_local.py` | Llama 3.2 via Ollama locally |
-| Memory | `brain/memory.py` | Multi-turn conversation history |
-| Logger | `brain/logger.py` | Session logging, token usage, JSON/CSV export |
-| TTS | `audio/tts.py` | Text-to-speech via gTTS |
+| Interview Plan | `interview/plan.py` | Sections + questions from JD & resume |
+| Interview Engine | `interview/engine.py` | Turn state machine: follow-ups, bridges, transitions, closing |
+| Evaluator | `interview/evaluator.py` | Score + strengths / improvements / verdict |
+| File Extractor | `interview/extractor.py` | PDF / DOCX / TXT text extraction |
+| LLM OpenRouter | `brain/llm_openrouter.py` | OpenRouter free-tier chat + model fallbacks + retry |
+| STT | `audio/stt_local.py` | faster-whisper transcription (local, all modes) |
+| TTS | `audio/tts.py` | gTTS subtitle-synced sentence chunks |
+| LLM Local | `brain/llm_local.py` | Ollama (offline fallback) |
 
 ---
 
@@ -103,11 +101,12 @@ Your voice → Whisper STT → GPT-4o-mini → gTTS → Spoken response
 
 | Layer | Technology | Notes |
 |---|---|---|
-| Backend | Python 3.11, FastAPI, Uvicorn | Async REST API |
-| Speech-to-Text | OpenAI Whisper API / faster-whisper | Cloud or local |
-| LLM | GPT-4o-mini / Ollama + Llama 3.2 | Cloud or local |
-| Text-to-Speech | gTTS | Google TTS, free |
-| Frontend | Vanilla HTML / CSS / JS | No framework, single file |
+| Backend | Python 3.11+, FastAPI, Uvicorn | Async REST API |
+| LLM | OpenRouter free-tier open-source models / Ollama | Auto-discovers $0 models with quality ordering + `openrouter/free` fallback, env-pinnable |
+| Speech-to-Text | faster-whisper | Local (all modes) |
+| Text-to-Speech | gTTS | Free, chunked per sentence for subtitle sync |
+| Resume Parsing | pypdf, python-docx | PDF / DOCX / TXT |
+| Frontend | Vanilla HTML / CSS / JS | Single file; SVG avatar + canvas waveform |
 | Audio Capture | Web MediaRecorder API | Browser-native |
 | Deployment | Render + UptimeRobot / Railway / Azure Container Apps | Auto-deploy from GitHub, always on via health check pings |
 
@@ -131,7 +130,7 @@ docker compose up            # http://localhost:8000
 
 ### Azure Container Apps — cost note
 
-The Azure deployment runs on the **free tier** (180,000 vCPU-seconds / 360,000 GiB-seconds / 2M requests per month) with `min-replicas 0`, so it **scales to zero** when idle — it wakes on first request and costs nothing while unused. Secrets (`OPENAI_API_KEY`) are stored in Azure Container App secrets, never in the image or repo.
+The Azure deployment runs on the **free tier** (180,000 vCPU-seconds / 360,000 GiB-seconds / 2M requests per month) with `min-replicas 0`, so it **scales to zero** when idle — it wakes on first request and costs nothing while unused. Secrets (`OPENROUTER_API_KEY`) are stored in Azure Container App secrets, never in the image or repo.
 
 ---
 
@@ -140,7 +139,7 @@ The Azure deployment runs on the **free tier** (180,000 vCPU-seconds / 360,000 G
 ### Prerequisites
 
 - Python 3.11+
-- OpenAI API key — [platform.openai.com/api-keys](https://platform.openai.com/api-keys) *(OpenAI mode)*
+- OpenRouter API key — [openrouter.ai/keys](https://openrouter.ai/keys) *(free tier, no credit card)*
 - [Ollama](https://ollama.com) installed *(local mode only)*
 - [ffmpeg](https://ffmpeg.org/download.html) installed
 
@@ -171,20 +170,32 @@ pip install -r requirements.txt
 
 ### 4. Configure mode
 
-Open `config.py` and set your preferred mode:
+`MODE` is read from the environment (defaults to `openrouter`):
 
-```python
-MODE = "openai"   # "openai" = GPT-4o-mini + Whisper API
-                  # "local"  = Llama 3.2 + faster-whisper (no API key needed)
+```bash
+MODE=openrouter  # "openrouter" = OpenRouter free-tier LLM + local faster-whisper (default)
+                 # "local"      = Ollama + faster-whisper (fully offline, no API key needed)
 ```
 
-### 5. Add your API key *(OpenAI mode only)*
+### 5. Add your API key *(OpenRouter mode only)*
 
 Create a `.env` file in the project root:
 
 ```
-OPENAI_API_KEY=sk-your-key-here
+OPENROUTER_API_KEY=your-openrouter-api-key
 ```
+
+**Model auto-discovery:** free-tier OpenRouter models rotate constantly (models get retired to paid or replaced), so the app **discovers currently-free models at runtime** (`GET /models`, filtered to $0 pricing), orders them by quality, and tries each one in turn — advancing automatically past `404 "unavailable for free"` and rate-limit errors. `openrouter/free` is always appended as the ultimate fallback. To **pin** a specific list and skip discovery:
+
+```
+# OPENROUTER_MODELS=["qwen/qwen3-next-80b-a3b-instruct:free","openrouter/free"]
+```
+
+Free-tier rate limits are ~20 requests/minute and ~50 requests/day (raised to 1,000/day after a one-time $10 credit purchase).
+
+> **Troubleshooting:** if *every* free model returns a 404 like `No endpoints available matching your data policy`, it's your OpenRouter **Privacy settings**, not the app — disable **"Zero data retention endpoints only"** under [Settings → Privacy](https://openrouter.ai/settings/privacy) so free endpoints can serve requests.
+
+The model that generated the current turn is shown as a **"brain: \<model\>" chip** in the interview screen and returned as `model` in each `/interview/*` response.
 
 ### 6. Configure ffmpeg *(local playback only)*
 
@@ -219,24 +230,29 @@ http://localhost:8000
 
 ```
 ank-voice-assistant/
-├── app.py                  # FastAPI server, endpoints, temp file cleanup
-├── config.py               # Mode switch, API keys, model settings
+├── app.py                  # FastAPI server, endpoint wiring, temp file cleanup
+├── config.py               # Mode switch, API keys, interview tuning
 ├── requirements.txt
-├── railway.json            # Railway deployment config
 ├── render.yaml             # Render deployment config
 ├── static/
-│   └── index.html          # Full web UI — single file
+│   └── index.html          # Full web UI — single file (avatar + waveform)
+├── interview/              # Mock-interview engine
+│   ├── routes.py           # /interview/* endpoints
+│   ├── engine.py           # Session state machine (follow-ups, transitions, closing)
+│   ├── plan.py             # Section + question generation
+│   ├── evaluator.py        # Scorecard generation
+│   ├── extractor.py        # PDF / DOCX / TXT text extraction
+│   └── prompts.py          # LLM prompt builders
 ├── audio/
-│   ├── stt.py              # STT router
-│   ├── stt_openai.py       # Whisper API
+│   ├── stt.py              # STT router (always faster-whisper)
 │   ├── stt_local.py        # faster-whisper (local)
-│   └── tts.py              # Text-to-speech via gTTS
+│   └── tts.py              # gTTS (incl. subtitle-synced chunks)
 └── brain/
     ├── llm.py              # LLM router
-    ├── llm_openai.py       # GPT-4o-mini + token usage tracking
-    ├── llm_local.py        # Llama 3.2 via Ollama
-    ├── memory.py           # Conversation history
-    └── logger.py           # Session logging, token tracking, data export
+    ├── llm_openrouter.py   # OpenRouter chat + model fallbacks + retry
+    ├── llm_local.py        # Ollama
+    ├── memory.py           # Conversation history (legacy /chat)
+    └── logger.py           # Session logging, JSON/CSV export
 ```
 
 ---
@@ -246,39 +262,29 @@ ank-voice-assistant/
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/` | Serves the web UI |
-| `POST` | `/chat` | Accepts audio, returns transcript + reply + audio URL + analytics |
+| `POST` | `/interview/start` | Builds the interview and returns the opener; body: `job_description`, `resume_text`, `interviewer` (JSON) |
+| `POST` | `/interview/prepare` | Builds the plan without speaking → `{plan, model}` (sections preview for the setup wizard) |
+| `POST` | `/interview/begin` | Delivers the greeting + first question (after `prepare`) |
+| `POST` | `/interview/answer` | Multipart audio answer → next interviewer turn (follow-up / transition / closing) |
+| `POST` | `/interview/upload` | Upload PDF/DOCX/TXT → extracted text |
+| `POST` | `/interview/skip` | Skip the current question |
+| `POST` | `/interview/end` | End early → returns immediately with `pending: true`; evaluation runs in the background |
+| `GET` | `/interview/results` | Poll for the finished evaluation → `{ready, evaluation, evaluation_segments}` |
+| `GET` | `/interview/state` | Current interview progress |
+| `POST` | `/interview/reset` | Clear the active interview |
+| `POST` | `/chat` | Legacy voice chat endpoint (server-only, kept for compatibility) |
 | `GET` | `/audio/{file}` | Serves generated TTS audio |
-| `POST` | `/reset` | Clears memory, session and temp files |
-| `GET` | `/analytics` | Returns live session analytics |
-| `GET` | `/export/json` | Downloads full session as JSON |
-| `GET` | `/export/csv` | Downloads session turns as CSV |
 | `GET` | `/health`, `/healthz` | Liveness probes (200 OK) |
 | `GET` | `/metrics` | Prometheus metrics (counter, latency histogram, process/GC) |
-
----
-
-## Research & Data Collection
-
-Each session is automatically logged to `logs/session_YYYYMMDD_HHMMSS.json` containing:
-
-- Full turn-by-turn conversation history
-- Timestamps for every message
-- Response latency per turn (ms)
-- Token usage per turn — prompt, completion and total
-- Aggregated session statistics
-
-Sessions can be exported directly from the UI as **JSON** or **CSV** for offline analysis. This is designed to support empirical studies on human-AI dialogue interaction — tracking conversation patterns, response latency, token consumption and turn-taking behaviour across sessions.
 
 ---
 
 ## Privacy & Ethics
 
 - A consent banner is shown at the start of every session explaining data usage clearly
-- Voice audio is sent to OpenAI Whisper API for transcription
-- Conversation text is sent to GPT-4o-mini to generate responses
+- Voice audio and your interview answers are transcribed locally with faster-whisper; the job description, resume and transcript are sent to the OpenRouter API (free-tier open-source models) to run the interview
 - No data is stored permanently on the server
-- Session logs are saved locally only and never shared with third parties
-- The local mode option allows fully offline operation with zero data leaving the device
+- The local mode option (`MODE=local`, Ollama + faster-whisper) allows fully offline operation with zero data leaving the device
 - Users can decline consent — no data is collected if declined
 
 ---

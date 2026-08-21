@@ -13,7 +13,7 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    MODE=openai \
+    MODE=openrouter \
     TEMP_DIR=/tmp
 
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
@@ -27,6 +27,7 @@ RUN groupadd --gid 1000 app \
 COPY --chown=app:app app.py config.py requirements.txt ./
 COPY --chown=app:app audio ./audio
 COPY --chown=app:app brain ./brain
+COPY --chown=app:app interview ./interview
 COPY --chown=app:app static ./static
 
 USER app

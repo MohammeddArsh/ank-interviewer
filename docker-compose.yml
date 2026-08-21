@@ -5,8 +5,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      MODE: openai
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      MODE: openrouter
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       TEMP_DIR: /tmp
     volumes:
       - ./static:/app/static

@@ -81,7 +81,7 @@ jobs:
             az containerapp secret set \
               --name ${{ secrets.AZURE_APP_NAME }} \
               --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-              --secrets openai-api-key="${{ secrets.OPENAI_API_KEY }}" || true
+              --secrets openrouter-api-key="${{ secrets.OPENROUTER_API_KEY }}" || true
 
             az containerapp update \
               --name ${{ secrets.AZURE_APP_NAME }} \
@@ -89,4 +89,4 @@ jobs:
               --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
               --min-replicas 0 \
               --max-replicas 1 \
-              --set-env-vars MODE=openai TEMP_DIR=/tmp OPENAI_API_KEY=secretref:openai-api-key
+              --set-env-vars MODE=openrouter TEMP_DIR=/tmp OPENROUTER_API_KEY=secretref:openrouter-api-key
