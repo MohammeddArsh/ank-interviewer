@@ -17,7 +17,7 @@ import threading
 
 import numpy as np
 
-from config import MOONSHINE_MODEL, STT_BACKEND
+from config import MOONSHINE_MODEL, MOONSHINE_PRECISION, STT_BACKEND
 
 _lock = threading.Lock()
 _moonshine = None
@@ -36,8 +36,11 @@ def _get_moonshine():
                 from audio._vendor.moonshine_onnx import MoonshineOnnxModel
                 from audio._vendor.moonshine_onnx.transcribe import load_tokenizer
 
-                print(f"Loading local Moonshine '{MOONSHINE_MODEL}' ONNX model...")
-                _moonshine = MoonshineOnnxModel(model_name=MOONSHINE_MODEL)
+                print(f"Loading local Moonshine '{MOONSHINE_MODEL}' "
+                      f"ONNX model ({MOONSHINE_PRECISION})...")
+                _moonshine = MoonshineOnnxModel(
+                    model_name=MOONSHINE_MODEL, model_precision=MOONSHINE_PRECISION
+                )
                 _tokenizer = load_tokenizer()
                 print("Moonshine ready.")
     return _moonshine, _tokenizer

@@ -89,4 +89,4 @@ jobs:
               --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
               --min-replicas 0 \
               --max-replicas 1 \
-              --set-env-vars MODE=openrouter TEMP_DIR=/tmp STT_BACKEND=moonshine MOONSHINE_MODEL=base OPENROUTER_API_KEY=secretref:openrouter-api-key
+              --set-env-vars MODE=openrouter TEMP_DIR=/tmp STT_BACKEND=moonshine MOONSHINE_MODEL=tiny MOONSHINE_PRECISION=quantized OPENROUTER_API_KEY=secretref:openrouter-api-key

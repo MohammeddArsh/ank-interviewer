@@ -34,8 +34,18 @@ class MoonshineOnnxModel(object):
                 for x in ("encoder_model", "decoder_model_merged")
             ]
 
-        self.encoder = onnxruntime.InferenceSession(encoder)
-        self.decoder = onnxruntime.InferenceSession(decoder)
+        # Local addition (not upstream): keep memory flat on small instances.
+        # Single-threaded ops suit 0.1-vCPU containers, and disabling the CPU
+        # arena lets onnxruntime return transient decode memory to the OS
+        # instead of holding it forever.
+        sess_options = onnxruntime.SessionOptions()
+        sess_options.inter_op_num_threads = 1
+        sess_options.intra_op_num_threads = 1
+        sess_options.enable_cpu_mem_arena = False
+        sess_options.log_severity_level = 4
+
+        self.encoder = onnxruntime.InferenceSession(encoder, sess_options=sess_options)
+        self.decoder = onnxruntime.InferenceSession(decoder, sess_options=sess_options)
 
         self.encoder_input_names = [x.name for x in self.encoder.get_inputs()]
         self.decoder_input_names = [x.name for x in self.decoder.get_inputs()]

@@ -1,9 +1,10 @@
 """Real-time streaming transcription over WebSocket.
 
 The browser streams raw 16 kHz mono PCM (Int16 little-endian) frames while
-the candidate speaks. Silero VAD (bundled with faster-whisper) segments
-speech; the currently-open segment is re-transcribed periodically and pushed
-back as live partials, and every closed segment is emitted as a final.
+the candidate speaks. Silero VAD (bundled ONNX, loaded directly through
+onnxruntime) segments speech; the currently-open segment is re-transcribed
+periodically and pushed back as live partials, and every closed segment is
+emitted as a final.
 
 Server -> client JSON events:
   {"type": "start"}                     a speech segment opened
@@ -40,9 +41,9 @@ VAD_WINDOW = 512             # silero expects multiples of 512 samples @16k
 # One worker => transcriptions never interleave on CPU.
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
 
-try:  # bundled with faster-whisper (onnxruntime); degrade to RMS if missing
-    from faster_whisper.vad import get_vad_model
-    _vad = get_vad_model()
+try:  # bundled Silero ONNX via onnxruntime; degrade to RMS if missing
+    from audio.silero_vad import get_vad
+    _vad = get_vad()
 except Exception:
     _vad = None
 

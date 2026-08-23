@@ -9,5 +9,9 @@ services:
         sync: false
       - key: STT_BACKEND
         value: moonshine
+      # tiny+quantized keeps peak RSS ~355MB (measured), fitting the 512MB
+      # free-tier cap with headroom; base/float needs ~820MB.
       - key: MOONSHINE_MODEL
-        value: base
+        value: tiny
+      - key: MOONSHINE_PRECISION
+        value: quantized

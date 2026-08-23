@@ -59,6 +59,42 @@ class TestDispatch:
         assert calls["shape"] == (1, 16000)
         assert calls["dtype"] == np.float32
 
+    def test_get_moonshine_passes_configured_model_and_precision(self, monkeypatch):
+        captured = {}
+
+        class FakeModel:
+            pass
+
+        class FakeTok:
+            pass
+
+        def fake_ctor(**kwargs):
+            captured.update(kwargs)
+            return FakeModel()
+
+        import sys
+
+        import audio._vendor.moonshine_onnx as vendored
+
+        transcribe_mod = sys.modules["audio._vendor.moonshine_onnx.transcribe"]
+
+        monkeypatch.setattr(stt_engine, "MOONSHINE_MODEL", "tiny")
+        monkeypatch.setattr(stt_engine, "MOONSHINE_PRECISION", "quantized")
+        monkeypatch.setattr(vendored, "MoonshineOnnxModel", fake_ctor)
+        monkeypatch.setattr(
+            transcribe_mod, "load_tokenizer", lambda: FakeTok()
+        )
+        model, tok = stt_engine._get_moonshine()
+        assert isinstance(model, FakeModel) and isinstance(tok, FakeTok)
+        # second call returns the cached singletons without re-construction
+        def _must_not_reload(*args, **kwargs):
+            raise AssertionError("must not re-load")
+
+        monkeypatch.setattr(vendored, "MoonshineOnnxModel", _must_not_reload)
+        model2, tok2 = stt_engine._get_moonshine()
+        assert model2 is model and tok2 is tok
+        assert captured == {"model_name": "tiny", "model_precision": "quantized"}
+
     def test_whisper_backend(self, monkeypatch):
         captured = {}
         pcm = _speech_pcm()
