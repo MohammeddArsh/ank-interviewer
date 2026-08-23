@@ -64,11 +64,12 @@ def client():
     return TestClient(app_module.app)
 
 
-def _start(client):
+def _start(client, duration="standard"):
     r = client.post("/interview/start", data={
         "job_description": "Senior Python backend engineer",
         "resume_text": "5 years Python, FastAPI, AWS",
         "interviewer": '{"name": "Alex", "role": "Recruiter"}',
+        "duration": duration,
     })
     return r
 
@@ -387,3 +388,42 @@ def test_generate_uses_fallback_when_always_rambling(monkeypatch):
 
     assert out.startswith("Thanks for that.")
     assert "current question was" not in out.lower()
+
+
+def test_resolve_duration_presets():
+    from config import resolve_duration
+    assert resolve_duration("quick") == (4, 0)
+    assert resolve_duration("standard") == (6, 1)
+    assert resolve_duration("deep") == (9, 1)
+    assert resolve_duration("Quick") == (4, 0)   # case-insensitive
+    assert resolve_duration("") == (6, 1)        # env defaults
+    assert resolve_duration("bogus") == (6, 1)
+
+
+def test_session_uses_duration_knobs():
+    from interview import engine
+    quick = engine.InterviewSession("jd", "resume", duration="quick")
+    assert (quick.max_questions, quick.follow_ups_per_question) == (4, 0)
+    deep = engine.InterviewSession("jd", "resume", duration="deep")
+    assert (deep.max_questions, deep.follow_ups_per_question) == (9, 1)
+
+
+def test_quick_duration_skips_followups(client):
+    client.post("/interview/reset")
+    r = _start(client, duration="quick")
+    d = r.json()
+    assert d["state"]["duration"] == "quick"
+
+    wav = io.BytesIO(b"RIFFfake-wav")
+    files = {"audio": ("a.webm", wav, "audio/webm")}
+    r = client.post("/interview/answer", files=files)
+    d = r.json()
+    assert d["utterance"] == "TRANSITION"       # no probing follow-up first
+    assert d["state"]["is_followup"] is False
+    assert d["state"]["current_section"] == "Technical"
+
+
+def test_deep_duration_reaches_engine(client):
+    client.post("/interview/reset")
+    r = _start(client, duration="deep")
+    assert r.json()["state"]["duration"] == "deep"

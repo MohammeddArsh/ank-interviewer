@@ -44,6 +44,27 @@ MAX_QUESTIONS = int(os.getenv("MAX_QUESTIONS", "6"))
 FOLLOW_UPS_PER_QUESTION = int(os.getenv("FOLLOW_UPS_PER_QUESTION", "1"))
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
 
+# Interview duration presets chosen in the setup wizard. Each maps to the
+# total number of planned questions and probing follow-ups per answer.
+DURATION_PRESETS = {
+    "quick": {"questions": 4, "follow_ups": 0},     # ~8 minutes
+    "standard": {"questions": 6, "follow_ups": 1},  # ~18 minutes
+    "deep": {"questions": 9, "follow_ups": 1},      # ~30 minutes
+}
+DEFAULT_DURATION = os.getenv("DEFAULT_DURATION", "standard")
+
+
+def resolve_duration(key: str) -> tuple[int, int]:
+    """Map a preset key to (max_questions, follow_ups_per_question).
+
+    Unknown/missing keys fall back to the env-configured defaults so
+    existing deployments behave exactly as before.
+    """
+    preset = DURATION_PRESETS.get((key or "").strip().lower())
+    if preset:
+        return preset["questions"], preset["follow_ups"]
+    return MAX_QUESTIONS, FOLLOW_UPS_PER_QUESTION
+
 # LLM settings (local mode only)
 LLM_MODEL_LOCAL = os.getenv("LLM_MODEL_LOCAL", "llama3.2")
 

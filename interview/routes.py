@@ -5,11 +5,12 @@ import uuid
 
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from audio.stt import transcribe
 from audio.tts import speak_to_chunks
 from brain.llm import get_last_model
-from config import MAX_UPLOAD_BYTES, TEMP_DIR
+from config import DEFAULT_DURATION, MAX_UPLOAD_BYTES, TEMP_DIR
 from interview import extractor
 from interview.engine import InterviewSession
 
@@ -84,9 +85,10 @@ async def upload(file: UploadFile = File(...)):  # noqa: B008
 
 @router.post("/start")
 async def start(job_description: str = Form(""), resume_text: str = Form(""),
-                interviewer: str = Form("{}")):  # noqa: B008
+                interviewer: str = Form("{}"),
+                duration: str = Form(DEFAULT_DURATION)):  # noqa: B008
     global _session
-    created = _build_session(job_description, resume_text, interviewer)
+    created = _build_session(job_description, resume_text, interviewer, duration)
     if isinstance(created, JSONResponse):
         return created
     _session = created
@@ -101,9 +103,10 @@ async def start(job_description: str = Form(""), resume_text: str = Form(""),
 
 @router.post("/prepare")
 async def prepare(job_description: str = Form(""), resume_text: str = Form(""),
-                  interviewer: str = Form("{}")):  # noqa: B008
+                  interviewer: str = Form("{}"),
+                  duration: str = Form(DEFAULT_DURATION)):  # noqa: B008
     global _session
-    created = _build_session(job_description, resume_text, interviewer)
+    created = _build_session(job_description, resume_text, interviewer, duration)
     if isinstance(created, JSONResponse):
         return created
     _session = created
@@ -129,7 +132,8 @@ async def begin():  # noqa: B008
     return _utterance_response(result["utterance"])
 
 
-def _build_session(job_description: str, resume_text: str, interviewer: str):
+def _build_session(job_description: str, resume_text: str, interviewer: str,
+                   duration: str = DEFAULT_DURATION):
     """Validate inputs and construct a session, or return an error JSONResponse."""
     import json
 
@@ -142,7 +146,7 @@ def _build_session(job_description: str, resume_text: str, interviewer: str):
         interviewer_data = json.loads(interviewer or "{}")
     except json.JSONDecodeError:
         interviewer_data = {}
-    return InterviewSession(job_description, resume_text, interviewer_data or None)
+    return InterviewSession(job_description, resume_text, interviewer_data or None, duration)
 
 
 def _audio_extension(content_type: str) -> str:
@@ -179,6 +183,31 @@ async def answer(audio: UploadFile = File(...)):  # noqa: B008
         except Exception:
             pass
 
+    if not user_text:
+        return JSONResponse({"error": "Could not hear your answer. Please try again."}, status_code=400)
+
+    result = session.handle_answer(user_text)
+    return _utterance_response(
+        result["utterance"],
+        done=result.get("done", False),
+        evaluation=result.get("evaluation"),
+        transcript=user_text,
+    )
+
+
+class TranscriptIn(BaseModel):
+    transcript: str
+
+
+@router.post("/answer-text")
+async def answer_text(payload: TranscriptIn):
+    """Fast path: the client already holds a streamed transcript, so skip STT."""
+    try:
+        session = _require_session()
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    user_text = payload.transcript.strip()
     if not user_text:
         return JSONResponse({"error": "Could not hear your answer. Please try again."}, status_code=400)
 

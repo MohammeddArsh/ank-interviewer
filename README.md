@@ -38,6 +38,8 @@ Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS 
 
 - **AI mock interviewer** — realistic, sectioned interviews built from the JD + your resume
 - **Natural conversation** — warm greeting, section transitions that reference your answers, one probing follow-up per answer, closing with "any questions for me?"
+- **Adjustable length** — pick **Quick (~8 min)**, **Standard (~18 min)** or **Deep (~30 min)** during setup; controls total questions and whether probing follow-ups are asked
+- **Real-time transcription** — answers are streamed to `/ws/transcribe` and transcribed live word-by-word as you speak (faster-whisper + Silero VAD), with a WAV-upload fallback
 - **Final scorecard** — 0–100 score, strengths, areas to improve, and a spoken verdict
 - **Animated interviewer avatar** — illustrated personas (Recruiter, Technical Lead, HR, Executive) with lip-sync, blinking and head motion while speaking; toggle to a live circular waveform
 - **Live subtitles** — the interviewer's speech appears as subtitles in sync with each sentence
@@ -57,7 +59,8 @@ Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS 
 ┌─────────────────────────────────────────────────────┐
 │                    Browser (UI)                      │
 │  Paste/upload JD + resume → fetch(/interview/start) │
-│  MediaRecorder API → WAV/WebM blob → /interview/answer
+│  AudioWorklet → PCM frames → WS /ws/transcribe       │
+│  (live partials) → /interview/answer-text on stop    │
 │  ← JSON { utterance, segments, state }               │
 │  Audio() playback ← /audio/{file} + lip-sync avatar  │
 └────────────────────────┬─────────────────────────────┘
@@ -262,10 +265,12 @@ ank-voice-assistant/
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/` | Serves the web UI |
-| `POST` | `/interview/start` | Builds the interview and returns the opener; body: `job_description`, `resume_text`, `interviewer` (JSON) |
+| `POST` | `/interview/start` | Builds the interview and returns the opener; body: `job_description`, `resume_text`, `interviewer` (JSON), `duration` (`quick`/`standard`/`deep`) |
 | `POST` | `/interview/prepare` | Builds the plan without speaking → `{plan, model}` (sections preview for the setup wizard) |
 | `POST` | `/interview/begin` | Delivers the greeting + first question (after `prepare`) |
 | `POST` | `/interview/answer` | Multipart audio answer → next interviewer turn (follow-up / transition / closing) |
+| `POST` | `/interview/answer-text` | JSON `{transcript}` fast path — submits an already-transcribed answer, skipping server STT |
+| `WS` | `/ws/transcribe` | Real-time streaming transcription: browser sends raw Int16 LE 16 kHz mono PCM frames + `{"type":"stop"}`; server replies with `start` / `partial` / `final` JSON events |
 | `POST` | `/interview/upload` | Upload PDF/DOCX/TXT → extracted text |
 | `POST` | `/interview/skip` | Skip the current question |
 | `POST` | `/interview/end` | End early → returns immediately with `pending: true`; evaluation runs in the background |

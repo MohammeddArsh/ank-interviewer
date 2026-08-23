@@ -10,7 +10,7 @@ import threading
 import time
 
 from brain.llm import complete
-from config import FOLLOW_UPS_PER_QUESTION, MAX_QUESTIONS
+from config import DEFAULT_DURATION, resolve_duration
 from interview import prompts
 from interview.evaluator import evaluate as _evaluate
 from interview.plan import generate_plan
@@ -92,10 +92,13 @@ def _candidate_has_questions(text: str) -> bool:
 
 
 class InterviewSession:
-    def __init__(self, job_description: str, resume_text: str, interviewer: dict = None):
+    def __init__(self, job_description: str, resume_text: str, interviewer: dict = None,
+                 duration: str = DEFAULT_DURATION):
         self.job_description = job_description
         self.resume_text = resume_text
         self.interviewer = interviewer or DEFAULT_INTERVIEWER
+        self.duration = duration or DEFAULT_DURATION
+        self.max_questions, self.follow_ups_per_question = resolve_duration(self.duration)
         self.plan = None
         self.sections = []
         self.section_idx = 0
@@ -114,7 +117,7 @@ class InterviewSession:
     def prepare(self) -> dict:
         """Build the interview plan without speaking. Returns a plan summary."""
         if self.plan is None:
-            self.plan = generate_plan(self.job_description, self.resume_text, MAX_QUESTIONS)
+            self.plan = generate_plan(self.job_description, self.resume_text, self.max_questions)
         self.sections = self.plan["sections"]
         self.total_questions = sum(len(s["questions"]) for s in self.sections)
         self.section_idx = 0
@@ -154,7 +157,7 @@ class InterviewSession:
 
         if self.phase == "answering_main":
             self.follow_ups_used = 0
-            if FOLLOW_UPS_PER_QUESTION > 0:
+            if self.follow_ups_per_question > 0:
                 self.phase = "answering_followup"
                 utterance = self._generate(_FOLLOW_UP_INS)
                 self._append_interviewer(utterance)
@@ -164,7 +167,7 @@ class InterviewSession:
 
         if self.phase == "answering_followup":
             self.follow_ups_used += 1
-            if self.follow_ups_used < FOLLOW_UPS_PER_QUESTION:
+            if self.follow_ups_used < self.follow_ups_per_question:
                 utterance = self._generate(_FOLLOW_UP_INS)
                 self._append_interviewer(utterance)
                 return self._respond(utterance)
@@ -369,6 +372,7 @@ class InterviewSession:
         return {
             "phase": self.phase,
             "interviewer": self.interviewer,
+            "duration": self.duration,
             "sections": [s["title"] for s in self.sections],
             "current_section": section["title"] if section else None,
             "section_idx": self.section_idx,

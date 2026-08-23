@@ -402,6 +402,12 @@
     <div class="panel">
       <div class="panel-head"><div class="panel-title">Choose your interviewer</div></div>
       <div class="persona-row" id="persona-row"></div>
+      <div class="panel-head" style="margin-top:22px"><div class="panel-title">Session length</div></div>
+      <div class="segmented" id="duration-row">
+        <button data-d="quick">Quick · ~8 min</button>
+        <button class="active" data-d="standard">Standard · ~18 min</button>
+        <button data-d="deep">Deep · ~30 min</button>
+      </div>
     </div>
   </div>
 
@@ -604,6 +610,7 @@ function buildAvatarElement(p) {
 const $ = id => document.getElementById(id);
 let view = 'person';
 let personaKey = 'recruiter';
+let durationKey = 'standard';
 let session = null;
 let lastModel = null;
 let isBusy = false;
@@ -614,6 +621,12 @@ let mediaRecorder = null;
 let chunks = [];
 let pcmChunks = [];
 let recInput = null;
+let liveWs = null;          // /interview/ws/transcribe socket
+let liveText = '';          // accumulated finals for the current answer
+let micNode = null;         // AudioWorkletNode capture
+let sendBuf = [];           // Float32 blocks queued before resample+send
+let sendBufLen = 0;
+const LIVE_SR = 16000;      // server-side sample rate for the stream
 let recGain = null;
 let stream = null;
 let segments = [];
@@ -647,6 +660,13 @@ function renderPersonas() {
     row.appendChild(el);
   });
 }
+
+$('duration-row').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-d]');
+  if (!btn) return;
+  durationKey = btn.dataset.d;
+  $('duration-row').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+});
 
 function pickFile(kind) {
   $('' + kind + '-file').click();
@@ -742,6 +762,7 @@ async function prepareInterview() {
   fd.append('job_description', $('jd-text').value.trim());
   fd.append('resume_text', $('resume-text').value.trim());
   fd.append('interviewer', JSON.stringify({ name: PERSONAS[personaKey].name, role: PERSONAS[personaKey].role }));
+  fd.append('duration', durationKey);
 
   try {
     const res = await fetch('/interview/prepare', { method: 'POST', body: fd });
@@ -1082,20 +1103,39 @@ async function startRecording() {
     return;
   }
   pcmChunks = [];
+  liveText = '';
+  sendBuf = []; sendBufLen = 0;
   const src = audioCtx.createMediaStreamSource(stream);
   micAnalyser = audioCtx.createAnalyser();
   micAnalyser.fftSize = 128;
   src.connect(micAnalyser);
 
-  // Record raw PCM so we can send a WAV blob — MediaRecorder/WebM blobs
-  // often can't be decoded by the server's transcription, so we avoid them.
-  recInput = audioCtx.createScriptProcessor(4096, 1, 1);
-  recInput.onaudioprocess = e => { pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
-  src.connect(recInput);
   recGain = audioCtx.createGain();
   recGain.gain.value = 0;
-  recInput.connect(recGain);
   recGain.connect(audioCtx.destination);
+
+  let tapped = false;
+  try {
+    if (!audioCtx.recorderReady) {
+      await audioCtx.audioWorklet.addModule('/static/worklets/recorder.js');
+      audioCtx.recorderReady = true;
+    }
+    micNode = new AudioWorkletNode(audioCtx, 'recorder');
+    micNode.port.onmessage = e => queueMic(e.data);
+    src.connect(micNode);
+    micNode.connect(recGain);
+    tapped = true;
+  } catch (e) { /* older browsers: ScriptProcessor fallback below */ }
+  if (!tapped) {
+    // Record raw PCM so we can send a WAV blob — MediaRecorder/WebM blobs
+    // often can't be decoded by the server's transcription, so we avoid them.
+    recInput = audioCtx.createScriptProcessor(4096, 1, 1);
+    recInput.onaudioprocess = e => queueMic(new Float32Array(e.inputBuffer.getChannelData(0)));
+    src.connect(recInput);
+    recInput.connect(recGain);
+  }
+
+  openLiveSocket();
 
   speakerState = 'listening';
   $('mic-btn').classList.add('recording');
@@ -1103,16 +1143,93 @@ async function startRecording() {
   setSubtitle('Listening to your answer…', 'you');
 }
 
+/* live transcription stream (16 kHz mono Int16 over WebSocket) */
+function queueMic(block) {
+  pcmChunks.push(block);            // kept as WAV fallback insurance
+  sendBuf.push(block);
+  sendBufLen += block.length;
+  if (sendBufLen >= 4096 && liveWs && liveWs.readyState === WebSocket.OPEN) flushSendBuf();
+}
+
+function flushSendBuf() {
+  if (!sendBufLen) return;
+  const all = new Float32Array(sendBufLen);
+  let off = 0;
+  for (const b of sendBuf) { all.set(b, off); off += b.length; }
+  sendBuf = []; sendBufLen = 0;
+  const out = resampleTo16k(all, audioCtx.sampleRate);
+  const pcm = new Int16Array(out.length);
+  for (let i = 0; i < out.length; i++) {
+    const s = Math.max(-1, Math.min(1, out[i]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  liveWs.send(pcm.buffer);
+}
+
+function resampleTo16k(buf, fromRate) {
+  if (fromRate === LIVE_SR) return buf;
+  const ratio = fromRate / LIVE_SR;
+  const outLen = Math.floor(buf.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * ratio;
+    const j = Math.floor(pos), frac = pos - j;
+    const a = buf[j] || 0, b = buf[j + 1] || a;
+    out[i] = a + (b - a) * frac;
+  }
+  return out;
+}
+
+function openLiveSocket() {
+  try {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    liveWs = new WebSocket(`${proto}://${location.host}/ws/transcribe`);
+  } catch (e) { liveWs = null; return; }
+  liveWs.binaryType = 'arraybuffer';
+  liveWs.onmessage = ev => {
+    let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type === 'partial') {
+      setSubtitle(((liveText + ' ' + msg.text).trim() || 'Listening…'), 'you');
+    } else if (msg.type === 'final') {
+      liveText = (liveText + ' ' + msg.text).trim();
+      setSubtitle(liveText || 'Listening…', 'you');
+    }
+  };
+  liveWs.onerror = () => {};
+}
+
+function closeLive() {
+  if (!liveWs) return;
+  liveWs.onmessage = null; liveWs.onerror = null; liveWs.onopen = null;
+  try { liveWs.close(); } catch (e) {}
+  liveWs = null;
+}
+
 function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
   speakerState = 'idle';
   if (stream) stream.getTracks().forEach(t => t.stop());
+  if (micNode) { micNode.port.onmessage = null; micNode.disconnect(); micNode = null; }
   if (recInput) { recInput.disconnect(); recInput.onaudioprocess = null; recInput = null; }
   if (recGain) { recGain.disconnect(); recGain = null; }
   $('mic-btn').classList.remove('recording');
   $('mic-hint').textContent = 'Click or hold Space to answer';
-  submitAnswer(encodeWav(pcmChunks, audioCtx.sampleRate));
+
+  const finish = () => {
+    const text = liveText.trim();
+    if (text) submitTranscript(text);
+    else submitAnswer(encodeWav(pcmChunks, audioCtx.sampleRate));
+  };
+
+  if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+    flushSendBuf();
+    liveWs.send(JSON.stringify({ type: 'stop' }));
+    setTimeout(() => { closeLive(); finish(); }, 700);   // grace for trailing final
+  } else {
+    closeLive();
+    finish();
+  }
 }
 
 function encodeWav(chunks, sampleRate) {
@@ -1137,6 +1254,43 @@ function encodeWav(chunks, sampleRate) {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
+function handleAnswerResponse(data, ep) {
+  if (ep !== uiEpoch) return;
+  if (data.error) {
+    setSubtitle(data.error, 'you');
+    isBusy = false; setMicEnabled(true);
+    return;
+  }
+  session = data.state;
+  lastModel = data.model;
+  addTranscript('you', data.transcript);
+  setSubtitle(data.transcript, 'you');
+  setTimeout(() => {
+    if (ep !== uiEpoch) return;
+    if (data.done) { renderResults(data.evaluation, data.evaluation_segments); return; }
+    playSegments(data.segments, () => { isBusy = false; setMicEnabled(true); updateStateUI(); });
+  }, 900);
+}
+
+async function submitTranscript(text) {
+  const ep = uiEpoch;
+  isBusy = true;
+  setMicEnabled(false);
+  try {
+    const res = await fetch('/interview/answer-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript: text })
+    });
+    const data = await res.json();
+    handleAnswerResponse(data, ep);
+  } catch (err) {
+    if (ep !== uiEpoch) return;
+    // streamed transcript lost in transit — retry via the WAV fallback
+    submitAnswer(encodeWav(pcmChunks, audioCtx.sampleRate));
+  }
+}
+
 async function submitAnswer(blob) {
   const ep = uiEpoch;
   isBusy = true;
@@ -1149,21 +1303,7 @@ async function submitAnswer(blob) {
   try {
     const res = await fetch('/interview/answer', { method: 'POST', body: fd });
     const data = await res.json();
-    if (ep !== uiEpoch) return;
-    if (data.error) {
-      setSubtitle(data.error, 'you');
-      isBusy = false; setMicEnabled(true);
-      return;
-    }
-    session = data.state;
-    lastModel = data.model;
-    addTranscript('you', data.transcript);
-    setSubtitle(data.transcript, 'you');
-    setTimeout(() => {
-      if (ep !== uiEpoch) return;
-      if (data.done) { renderResults(data.evaluation, data.evaluation_segments); return; }
-      playSegments(data.segments, () => { isBusy = false; setMicEnabled(true); updateStateUI(); });
-    }, 900);
+    handleAnswerResponse(data, ep);
   } catch (err) {
     if (ep !== uiEpoch) return;
     setSubtitle('Something went wrong. Try again.', 'you');
@@ -1293,11 +1433,13 @@ function playFeedback() {
 ================================================================ */
 async function newInterview() {
   uiEpoch++;
+  closeLive();
   stopSpeaking();
   isBusy = false;
   if (isRecording) {          // hard-abort recording without submitting
     isRecording = false;
     if (stream) stream.getTracks().forEach(t => t.stop());
+    if (micNode) { micNode.port.onmessage = null; micNode.disconnect(); micNode = null; }
     if (recInput) { recInput.disconnect(); recInput.onaudioprocess = null; recInput = null; }
     if (recGain) { recGain.disconnect(); recGain = null; }
     pcmChunks = [];

@@ -13,6 +13,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from audio.stream_stt import router as stream_router
 from audio.stt import transcribe
 from audio.tts import speak_to_file
 from brain.llm import get_reply
@@ -60,6 +61,7 @@ app.add_middleware(
 )
 
 app.include_router(interview_router)
+app.include_router(stream_router)
 
 memory = ConversationMemory()
 logger = SessionLogger()
