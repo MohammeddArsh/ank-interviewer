@@ -125,6 +125,14 @@ def _create(messages, temperature, max_tokens):
                     max_tokens=max_tokens,
                     extra_body={"models": models[:3]} if len(models) > 1 else None,
                 )
+                if not getattr(resp, "choices", None):
+                    # OpenRouter answers HTTP 200 with an in-body error object
+                    # when every endpoint for the fallback list fails. Treat
+                    # it like any other failure and advance to the next model.
+                    extra = getattr(resp, "model_extra", None) or {}
+                    print(f"[LLM] {model} answered 200 without choices: {extra.get('error') or 'unknown reason'}")
+                    last_exc = RuntimeError(f"{model}: no completion choices")
+                    break
                 global _last_model
                 _last_model = resp.model
                 print(f"[LLM] answered via {resp.model}")

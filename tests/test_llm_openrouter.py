@@ -155,3 +155,19 @@ class TestCreate:
         )
         with pytest.raises(RuntimeError, match="no completion choices"):
             mod.complete([{"role": "user", "content": "hi"}])
+
+    def test_empty_choices_advances_to_next_model(self, monkeypatch):
+        monkeypatch.setattr(mod, "_model_list", lambda: ["flaky/model:free", "good/model:free"])
+        calls = []
+
+        def fake_create(*args, **kwargs):
+            calls.append(kwargs["model"])
+            if len(calls) == 1:
+                # OpenRouter 200-with-error-body shape: no choices at all.
+                return SimpleNamespace(model="flaky/model:free", choices=[])
+            return _fake_chat_response("good/model:free")
+
+        monkeypatch.setattr(mod.client.chat.completions, "create", fake_create)
+        resp = mod._create([{"role": "user", "content": "hi"}], 0.7, 100)
+        assert calls == ["flaky/model:free", "good/model:free"]
+        assert resp.model == "good/model:free"

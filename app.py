@@ -69,7 +69,7 @@ logger = SessionLogger()
 
 @app.get("/")
 def index():
-    return FileResponse("static/index.html")
+    return FileResponse("static/index.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.post("/chat")
