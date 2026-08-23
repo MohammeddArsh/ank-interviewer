@@ -68,8 +68,13 @@ def resolve_duration(key: str) -> tuple[int, int]:
 # LLM settings (local mode only)
 LLM_MODEL_LOCAL = os.getenv("LLM_MODEL_LOCAL", "llama3.2")
 
-# Whisper settings (local mode only)
-WHISPER_MODEL = "base"
+# Speech-to-text settings. STT_BACKEND picks the engine shared by the
+# streaming WebSocket path and the legacy WAV fallback:
+#   "moonshine" — Moonshine ONNX (default; fast on small CPU instances)
+#   "whisper"   — local faster-whisper via WHISPER_MODEL
+STT_BACKEND = os.getenv("STT_BACKEND", "moonshine").strip().lower()
+MOONSHINE_MODEL = os.getenv("MOONSHINE_MODEL", "base").strip().lower()
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 
 SYSTEM_PROMPT = """You are Ank, a friendly and concise voice assistant built by Mohammed Arsh.
 Keep answers short and conversational — you are speaking out loud, not writing an essay.

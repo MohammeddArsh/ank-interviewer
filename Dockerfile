@@ -30,6 +30,12 @@ COPY --chown=app:app brain ./brain
 COPY --chown=app:app interview ./interview
 COPY --chown=app:app static ./static
 
+# Bake the default Moonshine ONNX weights into the image so containers
+# never download models at boot. HF_HOME keeps the hub cache in one place.
+ENV HF_HOME=/opt/models/hf
+RUN python -c "from audio._vendor.moonshine_onnx import MoonshineOnnxModel; MoonshineOnnxModel(model_name='base')" \
+    && chown -R app:app /opt/models
+
 USER app
 
 EXPOSE 8000

@@ -39,14 +39,14 @@ Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS 
 - **AI mock interviewer** — realistic, sectioned interviews built from the JD + your resume
 - **Natural conversation** — warm greeting, section transitions that reference your answers, one probing follow-up per answer, closing with "any questions for me?"
 - **Adjustable length** — pick **Quick (~8 min)**, **Standard (~18 min)** or **Deep (~30 min)** during setup; controls total questions and whether probing follow-ups are asked
-- **Real-time transcription** — answers are streamed to `/ws/transcribe` and transcribed live word-by-word as you speak (faster-whisper + Silero VAD), with a WAV-upload fallback
+- **Real-time transcription** — answers are streamed to `/ws/transcribe` and transcribed live word-by-word (Moonshine ONNX by default, faster-whisper optional via `STT_BACKEND`), with a WAV-upload fallback
 - **Final scorecard** — 0–100 score, strengths, areas to improve, and a spoken verdict
 - **Animated interviewer avatar** — illustrated personas (Recruiter, Technical Lead, HR, Executive) with lip-sync, blinking and head motion while speaking; toggle to a live circular waveform
 - **Live subtitles** — the interviewer's speech appears as subtitles in sync with each sentence
 - **Resume & JD input** — paste text or upload PDF / DOCX / TXT (parsed server-side)
 - **Voice answers** — click the mic or hold Spacebar to answer; your transcript is shown back
 - **Skip / end early** — move past a question or finish the interview any time
-- **Free stack** — OpenRouter free-tier open-source LLMs (with automatic model fallbacks) + local faster-whisper for transcription, gTTS for speech
+- **Free stack** — OpenRouter free-tier open-source LLMs (with automatic model fallbacks) + local Moonshine ONNX / faster-whisper for transcription, gTTS for speech
 - **Dual mode** — `openrouter` (cloud, free, default) or `local` (Ollama + faster-whisper, fully offline)
 - **Mobile responsive** — works on phones and tablets
 - **Auto cleanup** — temp audio/files removed on startup, shutdown and reset

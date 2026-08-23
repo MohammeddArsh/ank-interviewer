@@ -4,6 +4,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 110
 target-version = "py39"
+extend-exclude = ["audio/_vendor"]  # vendored third-party code, linted upstream
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]

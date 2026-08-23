@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -38,10 +37,8 @@ SPEECH_START_PROB = 0.5
 STOP_GRACE_S = 2.0           # allow the last final to finish before closing
 VAD_WINDOW = 512             # silero expects multiples of 512 samples @16k
 
-# One worker => transcriptions never interleave on CPU; the lock additionally
-# guards the shared whisper model against use from other request paths.
+# One worker => transcriptions never interleave on CPU.
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
-_model_lock = threading.Lock()
 
 try:  # bundled with faster-whisper (onnxruntime); degrade to RMS if missing
     from faster_whisper.vad import get_vad_model
@@ -51,22 +48,10 @@ except Exception:
 
 
 def _transcribe_pcm(pcm_int16: np.ndarray) -> str:
-    """Transcribe an Int16 PCM buffer with the shared local whisper model."""
-    if pcm_int16 is None or pcm_int16.size == 0 or not np.any(pcm_int16):
-        return ""  # empty/digital-silence input crashes the mel matmul
-    from audio.stt_local import model as whisper_model
+    """Transcribe an Int16 PCM buffer with the configured STT engine."""
+    from audio.stt_engine import transcribe_pcm
 
-    audio = pcm_int16.astype(np.float32) / 32768.0
-    with _model_lock:
-        segments, _info = whisper_model.transcribe(
-            audio,
-            language="en",
-            beam_size=1,
-            condition_on_previous_text=False,
-            without_timestamps=True,
-            vad_filter=False,
-        )
-        return "".join(s.text for s in segments).strip()
+    return transcribe_pcm(pcm_int16)
 
 
 class VadGate:
