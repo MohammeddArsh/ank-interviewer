@@ -5,6 +5,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     envVars:
+      # Match CI/Docker (py3.13) so dependency pins resolve identically
+      # everywhere and Render's default Python can't drift underneath us.
+      - key: PYTHON_VERSION
+        value: 3.13.4
       - key: OPENROUTER_API_KEY
         sync: false
       - key: STT_BACKEND
