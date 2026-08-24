@@ -2,14 +2,21 @@
 
 The browser streams raw 16 kHz mono PCM (Int16 little-endian) frames while
 the candidate speaks. Silero VAD (bundled ONNX, loaded directly through
-onnxruntime) segments speech; the currently-open segment is re-transcribed
-periodically and pushed back as live partials, and every closed segment is
-emitted as a final.
+onnxruntime) segments speech; every closed segment is transcribed once and
+pushed back as a final caption, followed by a "done" frame once nothing is
+pending.
+
+There are deliberately no live mid-word partials: they re-transcribe the
+growing segment every few hundred milliseconds, which on small CPU instances
+(Render free tier ~0.1 vCPU) piles decodes onto the single worker, starves
+the asyncio event loop, and trips uvicorn's WebSocket keepalive watchdog
+(connection killed with 1011 mid-answer). Per-phrase finals keep captions
+useful at a fraction of the compute.
 
 Server -> client JSON events:
   {"type": "start"}                     a speech segment opened
-  {"type": "partial", "text": "..."}    in-progress text of the open segment
   {"type": "final", "text": "..."}      completed segment text
+  {"type": "done"}                      all finals delivered; safe to submit
 
 Client -> server:
   binary frames   raw Int16 LE PCM @ 16 kHz mono
@@ -32,10 +39,10 @@ router = APIRouter()
 
 SEGMENT_SILENCE_S = 0.7      # silence that closes an open segment
 MAX_SEGMENT_S = 15.0         # hard cap so worst-case latency stays bounded
-PARTIAL_INTERVAL_S = 0.8     # minimum spacing between partial transcriptions
-PARTIAL_NEW_AUDIO_S = 0.5    # skip partials until this much new speech audio
 SPEECH_START_PROB = 0.5
-STOP_GRACE_S = 2.0           # allow the last final to finish before closing
+# Slow CPUs can take several seconds to decode the trailing segment after a
+# stop; give the final worker enough room before tearing the socket down.
+STOP_GRACE_S = 12.0
 VAD_WINDOW = 512             # silero expects multiples of 512 samples @16k
 
 # One worker => transcriptions never interleave on CPU.
@@ -118,9 +125,6 @@ class SegmentTracker:
         """Close an open segment (if any), e.g. on stop/disconnect."""
         return self._take() if self.open else None
 
-    def snapshot(self) -> np.ndarray:
-        return np.concatenate(self._chunks) if self._chunks else np.zeros(0, dtype=np.int16)
-
     def _take(self) -> np.ndarray:
         seg = np.concatenate(self._chunks) if self._chunks else np.zeros(0, dtype=np.int16)
         self.open = False
@@ -134,47 +138,36 @@ class SegmentTracker:
 async def ws_transcribe(ws: WebSocket):
     await ws.accept()
     loop = asyncio.get_running_loop()
-    started = time.monotonic()
 
     tracker = SegmentTracker()
     gate = VadGate()
     finals: asyncio.Queue = asyncio.Queue()
-    partial_state = {"at": started, "audio_seen": 0, "in_flight": False}
+
+    async def _safe_send(payload: dict) -> None:
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass  # socket already gone — nothing to deliver
 
     async def emit_final(segment: np.ndarray):
+        seconds = segment.shape[0] / SAMPLE_RATE
+        t0 = time.monotonic()
         try:
             text = await loop.run_in_executor(_pool, _transcribe_pcm, segment)
-            if text:
-                await ws.send_json({"type": "final", "text": text})
-        except Exception:
-            pass  # socket closed mid-transcription — nothing to deliver
+        except Exception as e:
+            print(f"[STT] decode failed ({seconds:.1f}s segment): {e!r}")
+            return
+        print(f"[STT] {seconds:.1f}s audio -> {time.monotonic() - t0:.1f}s decode")
+        if text:
+            await _safe_send({"type": "final", "text": text})
 
     async def final_worker():
         while True:
             item = await finals.get()
             if item is None:
-                return
+                break
             await emit_final(item)
-
-    async def maybe_partial():
-        now = time.monotonic()
-        if partial_state["in_flight"] or not tracker.open:
-            return
-        if (now - partial_state["at"] < PARTIAL_INTERVAL_S
-                or tracker.samples - partial_state["audio_seen"] < int(PARTIAL_NEW_AUDIO_S * tracker.sample_rate)):
-            return
-        tail = tracker.snapshot()
-        if not tail.size:
-            return
-        partial_state.update(in_flight=True, at=now, audio_seen=tracker.samples)
-        try:
-            text = await loop.run_in_executor(_pool, _transcribe_pcm, tail)
-            if text:
-                await ws.send_json({"type": "partial", "text": text})
-        except Exception:
-            pass
-        finally:
-            partial_state["in_flight"] = False
+        await _safe_send({"type": "done"})  # client may now submit its transcript
 
     worker = asyncio.create_task(final_worker())
     try:
@@ -189,12 +182,9 @@ async def ws_transcribe(ws: WebSocket):
                     continue
                 event, segment = tracker.feed(pcm, gate.decide(pcm))
                 if event == "open":
-                    partial_state.update(at=time.monotonic(), audio_seen=0)
                     await ws.send_json({"type": "start"})
                 elif event == "close" and segment is not None and segment.size:
                     await finals.put(segment)
-                elif event == "extend":
-                    await maybe_partial()
             elif (raw := message.get("text")):
                 try:
                     control = json.loads(raw)

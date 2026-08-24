@@ -66,13 +66,6 @@ class TestSegmentTracker:
         assert seg is not None and len(seg) == int(SR * 0.15)
         assert t.flush() is None  # nothing open anymore
 
-    def test_snapshot_copies_buffer(self):
-        t = SegmentTracker()
-        t.feed(_pcm(100), is_speech=True)
-        snap = t.snapshot()
-        assert len(snap) == int(SR * 0.1)
-        assert t.samples == len(snap)  # snapshot must not consume the buffer
-
 
 class TestVadGate:
     def test_rms_fallback_flags_loud_audio(self, monkeypatch):
@@ -125,6 +118,23 @@ class TestWsTranscribe:
             msg = ws.receive_json()
             assert msg["type"] == "final"
             assert msg["text"].startswith("text-")
+            # mid-stream finals are not the end: "done" only follows the stop
+            ws.send_text(json.dumps({"type": "stop"}))
+            assert ws.receive_json() == {"type": "done"}
+            with pytest.raises(WebSocketDisconnect):
+                ws.receive_json()
+
+    def test_extend_emits_no_frames(self, client):
+        stream_stt._vad.verdict = 1.0
+        with client.websocket_connect("/ws/transcribe") as ws:
+            ws.send_bytes(_pcm(300).tobytes())
+            assert ws.receive_json() == {"type": "start"}
+            # extended speech must not produce partials or finals on its own
+            for _ in range(5):
+                ws.send_bytes(_pcm(200).tobytes())
+            ws.send_text(json.dumps({"type": "stop"}))
+            assert ws.receive_json()["type"] == "final"   # only after the stop flush
+            assert ws.receive_json() == {"type": "done"}
 
     def test_stop_flushes_open_segment(self, client):
         stream_stt._vad.verdict = 1.0
@@ -132,15 +142,16 @@ class TestWsTranscribe:
             ws.send_bytes(_pcm(400).tobytes())
             assert ws.receive_json() == {"type": "start"}
             ws.send_text(json.dumps({"type": "stop"}))
-            msg = ws.receive_json()
-            assert msg["type"] == "final"
+            assert ws.receive_json()["type"] == "final"
+            assert ws.receive_json() == {"type": "done"}
 
     def test_silence_never_opens(self, client):
         stream_stt._vad.verdict = 0.0
         with client.websocket_connect("/ws/transcribe") as ws:
             ws.send_bytes(_silence(300).tobytes())
             ws.send_text(json.dumps({"type": "stop"}))
-            with pytest.raises(WebSocketDisconnect):  # no events queued; server closes
+            assert ws.receive_json() == {"type": "done"}  # no segments; still done
+            with pytest.raises(WebSocketDisconnect):
                 ws.receive_json()
 
     def test_empty_text_final_is_suppressed(self, client, monkeypatch):
@@ -150,5 +161,22 @@ class TestWsTranscribe:
             ws.send_bytes(_pcm(400).tobytes())
             assert ws.receive_json() == {"type": "start"}
             ws.send_text(json.dumps({"type": "stop"}))
-            with pytest.raises(WebSocketDisconnect):  # blank transcription → no final
+            assert ws.receive_json() == {"type": "done"}  # blank text → no final
+            with pytest.raises(WebSocketDisconnect):
+                ws.receive_json()
+
+    def test_decode_failure_still_completes(self, client, monkeypatch):
+        def boom(pcm):
+            raise RuntimeError("onnx exploded")
+
+        monkeypatch.setattr(stream_stt, "_transcribe_pcm", boom)
+        stream_stt._vad.verdict = 1.0
+        with client.websocket_connect("/ws/transcribe") as ws:
+            ws.send_bytes(_pcm(400).tobytes())
+            assert ws.receive_json() == {"type": "start"}
+            ws.send_text(json.dumps({"type": "stop"}))
+            # decode failed → no final, but the done frame must still arrive so
+            # the client can fall back to its WAV upload instead of hanging.
+            assert ws.receive_json() == {"type": "done"}
+            with pytest.raises(WebSocketDisconnect):
                 ws.receive_json()

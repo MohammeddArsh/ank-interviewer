@@ -623,6 +623,9 @@ let pcmChunks = [];
 let recInput = null;
 let liveWs = null;          // /interview/ws/transcribe socket
 let liveText = '';          // accumulated finals for the current answer
+let finishCb = null;        // deferred transcript submission (waits for "done")
+let finishTimer = null;
+const DONE_TIMEOUT_MS = 13000;   // server gives up at 12s (STOP_GRACE_S)
 let micNode = null;         // AudioWorkletNode capture
 let sendBuf = [];           // Float32 blocks queued before resample+send
 let sendBufLen = 0;
@@ -1188,14 +1191,26 @@ function openLiveSocket() {
   liveWs.binaryType = 'arraybuffer';
   liveWs.onmessage = ev => {
     let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
-    if (msg.type === 'partial') {
-      setSubtitle(((liveText + ' ' + msg.text).trim() || 'Listening…'), 'you');
-    } else if (msg.type === 'final') {
+    if (msg.type === 'final') {
       liveText = (liveText + ' ' + msg.text).trim();
       setSubtitle(liveText || 'Listening…', 'you');
+    } else if (msg.type === 'done') {
+      settleTranscript(true);
     }
   };
   liveWs.onerror = () => {};
+  liveWs.onclose = () => {
+    if (finishCb) settleTranscript(false);   // died while waiting → partial text
+  };
+}
+
+function settleTranscript(doneReceived) {
+  if (!finishCb) return;
+  const finish = finishCb;
+  finishCb = null;
+  if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
+  closeLive();
+  finish(doneReceived ? 'done' : 'degraded');
 }
 
 function closeLive() {
@@ -1216,19 +1231,25 @@ function stopRecording() {
   $('mic-btn').classList.remove('recording');
   $('mic-hint').textContent = 'Click or hold Space to answer';
 
-  const finish = () => {
+  // mode: 'done'     — server confirmed every final landed; text is complete
+  //       'degraded' — timed out / socket died waiting; partial text beats nothing
+  //       'wav'      — socket unusable; the full local recording is the truth
+  const finish = (mode) => {
+    const wav = () => submitAnswer(encodeWav(pcmChunks, audioCtx.sampleRate));
     const text = liveText.trim();
+    if (mode === 'wav') { wav(); return; }
     if (text) submitTranscript(text);
-    else submitAnswer(encodeWav(pcmChunks, audioCtx.sampleRate));
+    else wav();
   };
 
   if (liveWs && liveWs.readyState === WebSocket.OPEN) {
     flushSendBuf();
     liveWs.send(JSON.stringify({ type: 'stop' }));
-    setTimeout(() => { closeLive(); finish(); }, 700);   // grace for trailing final
+    finishCb = finish;   // resolved by the "done" frame, death, or timeout
+    finishTimer = setTimeout(() => settleTranscript(false), DONE_TIMEOUT_MS);
   } else {
     closeLive();
-    finish();
+    finish('wav');
   }
 }
 
