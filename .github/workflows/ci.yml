@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Rapid successive pushes raced the Azure deploy once
+# (ContainerAppOperationInProgress). Superseded runs get cancelled —
+# the newest commit always wins.
+concurrency:
+  group: production-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
 
