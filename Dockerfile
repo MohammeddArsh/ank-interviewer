@@ -30,13 +30,12 @@ COPY --chown=app:app brain ./brain
 COPY --chown=app:app interview ./interview
 COPY --chown=app:app static ./static
 
-# Bake the tiny quantized Moonshine ONNX weights into the image so
-# containers never download models at boot and fit in 512MB free-tier RAM
-# (measured peak ~355MB vs ~503MB for base/quantized, ~820MB for base/float).
-# HF_HOME keeps the hub cache in one place.
-ENV HF_HOME=/opt/models/hf
-RUN python -c "from audio._vendor.moonshine_onnx import MoonshineOnnxModel; MoonshineOnnxModel(model_name='tiny', model_precision='quantized')" \
-    && chown -R app:app /opt/models
+# The tiny quantized Moonshine weights ship inside the image
+# (audio/assets/moonshine/, vendored in-repo), so containers never download
+# models at boot and fit in 512MB free-tier RAM (measured peak ~355MB vs
+# ~503MB for base/quantized, ~820MB for base/float). This step is a build-time
+# smoke test: a broken bundle fails the build instead of the first interview.
+RUN python -c "from audio._vendor.moonshine_onnx import MoonshineOnnxModel; MoonshineOnnxModel(model_name='tiny', model_precision='quantized')"
 
 USER app
 
