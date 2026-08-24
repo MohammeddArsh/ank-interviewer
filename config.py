@@ -73,12 +73,14 @@ LLM_MODEL_LOCAL = os.getenv("LLM_MODEL_LOCAL", "llama3.2")
 #   "moonshine" — Moonshine ONNX (default; fast on small CPU instances)
 #   "whisper"   — local faster-whisper via WHISPER_MODEL
 STT_BACKEND = os.getenv("STT_BACKEND", "moonshine").strip().lower()
-MOONSHINE_MODEL = os.getenv("MOONSHINE_MODEL", "base").strip().lower()
-# ONNX weight variant: "float" (best quality) or "quantized" (int8, ~4x
-# less RAM — use on 512MB free-tier containers).
-MOONSHINE_PRECISION = os.getenv("MOONSHINE_PRECISION", "float").strip().lower()
+# Defaults are the deployment-safe profile (tiny+quantized ≈ 355MB peak RSS,
+# fits 512MB free-tier containers). Set MOONSHINE_MODEL=base and
+# MOONSHINE_PRECISION=float for best quality on machines with RAM to spare.
+MOONSHINE_MODEL = os.getenv("MOONSHINE_MODEL", "tiny").strip().lower()
+# ONNX weight variant: "quantized" (int8, default) or "float" (best quality).
+MOONSHINE_PRECISION = os.getenv("MOONSHINE_PRECISION", "quantized").strip().lower()
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 
-SYSTEM_PROMPT = """You are Ank, a friendly and concise voice assistant built by Mohammed Arsh.
+SYSTEM_PROMPT = """You are Ank, an AI mock interviewer built by Mohammed Arsh.
 Keep answers short and conversational — you are speaking out loud, not writing an essay.
 Avoid bullet points or markdown formatting in your responses."""
