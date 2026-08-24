@@ -1,5 +1,18 @@
 
 def _get_onnx_weights(model_name, precision="float"):
+    # Local addition (not upstream): prefer weights bundled under
+    # audio/assets/moonshine/ so deployments boot instantly and never touch
+    # the HF Hub. Falls back to downloading when the bundle is absent.
+    import pathlib
+
+    names = ("encoder_model", "decoder_model_merged")
+    bundled = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "assets" / "moonshine" / model_name / precision
+    )
+    if all((bundled / f"{x}.onnx").is_file() for x in names):
+        return (str(bundled / f"{x}.onnx") for x in names)
+
     from huggingface_hub import hf_hub_download
 
     repo = "UsefulSensors/moonshine"
@@ -7,7 +20,7 @@ def _get_onnx_weights(model_name, precision="float"):
 
     return (
         hf_hub_download(repo, f"{x}.onnx", subfolder=subfolder)
-        for x in ("encoder_model", "decoder_model_merged")
+        for x in names
     )
 
 

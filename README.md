@@ -38,7 +38,7 @@ Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS 
 - **AI mock interviewer** — realistic, sectioned interviews built from the JD + your resume
 - **Natural conversation** — warm greeting, section transitions that reference your answers, one probing follow-up per answer, closing with "any questions for me?"
 - **Adjustable length** — pick **Quick (~8 min)**, **Standard (~18 min)** or **Deep (~30 min)** during setup; controls total questions and whether probing follow-ups are asked
-- **Real-time transcription** — answers are streamed to `/ws/transcribe` and transcribed live word-by-word (Moonshine ONNX, tiny+quantized by default to fit small free-tier containers — set `MOONSHINE_MODEL=base MOONSHINE_PRECISION=float` for max quality; faster-whisper optional via `STT_BACKEND`), with a WAV-upload fallback
+- **Real-time transcription** — answers are streamed to `/ws/transcribe` and transcribed per phrase (Moonshine ONNX, tiny+quantized by default to fit small free-tier containers — set `MOONSHINE_MODEL=base MOONSHINE_PRECISION=float` for max quality; faster-whisper optional via `STT_BACKEND`), with a WAV-upload fallback. The tiny/quantized weights ship inside the repo (`audio/assets/moonshine/`), so cold boots never touch the Hugging Face Hub
 - **Final scorecard** — 0–100 score, strengths, areas to improve, and a spoken verdict
 - **Animated interviewer avatar** — illustrated personas (Recruiter, Technical Lead, HR, Executive) with lip-sync, blinking and head motion while speaking; toggle to a live circular waveform
 - **Live subtitles** — the interviewer's speech appears as subtitles in sync with each sentence
@@ -59,7 +59,7 @@ Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS 
 │                    Browser (UI)                      │
 │  Paste/upload JD + resume → fetch(/interview/start) │
 │  AudioWorklet → PCM frames → WS /ws/transcribe       │
-│  (live partials) → /interview/answer-text on stop    │
+│  (per-phrase finals) → /interview/answer-text on stop │
 │  ← JSON { utterance, segments, state }               │
 │  Audio() playback ← /audio/{file} + lip-sync avatar  │
 └────────────────────────┬─────────────────────────────┘
@@ -269,7 +269,7 @@ ank-interviewer/
 | `POST` | `/interview/begin` | Delivers the greeting + first question (after `prepare`) |
 | `POST` | `/interview/answer` | Multipart audio answer → next interviewer turn (follow-up / transition / closing) |
 | `POST` | `/interview/answer-text` | JSON `{transcript}` fast path — submits an already-transcribed answer, skipping server STT |
-| `WS` | `/ws/transcribe` | Real-time streaming transcription: browser sends raw Int16 LE 16 kHz mono PCM frames + `{"type":"stop"}`; server replies with `start` / `partial` / `final` JSON events |
+| `WS` | `/ws/transcribe` | Real-time streaming transcription: browser sends raw Int16 LE 16 kHz mono PCM frames + `{"type":"stop"}`; server replies with `start` / `final` JSON events and a trailing `done` once every final has been delivered (client submits its transcript only after `done`, falling back to the WAV upload if the socket dies first) |
 | `POST` | `/interview/upload` | Upload PDF/DOCX/TXT → extracted text |
 | `POST` | `/interview/skip` | Skip the current question |
 | `POST` | `/interview/end` | End early → returns immediately with `pending: true`; evaluation runs in the background |
