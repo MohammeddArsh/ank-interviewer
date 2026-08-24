@@ -1,6 +1,6 @@
 # Ank — AI Mock Interviewer
 
-[![CI](https://github.com/MohammeddArsh/ank-voice-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/MohammeddArsh/ank-voice-assistant/actions/workflows/ci.yml)
+[![CI](https://github.com/MohammeddArsh/ank-interviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/MohammeddArsh/ank-interviewer/actions/workflows/ci.yml)
 
 > A full-stack AI mock interviewer with a voice interface — paste a **job description** and your **resume**, and a realistic AI interviewer conducts a natural, sectioned interview with follow-up questions and a full scorecard at the end. Powered by **OpenRouter free-tier open-source LLMs** + local faster-whisper.
 >
@@ -14,8 +14,7 @@
 
 | Platform | Link | Status |
 |---|---|---|
-| 🚀 **Render** (primary) | [ank-voice-assistant.onrender.com](https://ank-voice-assistant.onrender.com) | Always on — kept alive via UptimeRobot |
-| 🚄 **Railway** (backup) | [ank-voice-assistant.up.railway.app](https://ank-voice-assistant.up.railway.app) | Active until March 2026, then expires |
+| ☁️ **Render** (primary) | [ank-voice-assistant.onrender.com](https://ank-voice-assistant.onrender.com) | Always on |
 | ☁️ **Azure Container Apps** (CI/CD) | [ank-voice-assistant.kindriver-c8b791e4.germanywestcentral.azurecontainerapps.io](https://ank-voice-assistant.kindriver-c8b791e4.germanywestcentral.azurecontainerapps.io) | Docker image deployed via GitHub Actions — scales to zero on the free tier |
 
 > **Note:** Render is the primary deployment, kept always on using UptimeRobot health checks. Railway is a backup that runs until the free trial expires in March 2026. The Azure Container App demonstrates the Docker + CI/CD pipeline — it cold-starts on first request (scale-to-zero).
@@ -149,8 +148,8 @@ The Azure deployment runs on the **free tier** (180,000 vCPU-seconds / 360,000 G
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/MohammeddArsh/ank-voice-assistant
-cd ank-voice-assistant
+git clone https://github.com/MohammeddArsh/ank-interviewer
+cd ank-interviewer
 ```
 
 ### 2. Create a virtual environment
@@ -232,7 +231,7 @@ http://localhost:8000
 ## Project Structure
 
 ```
-ank-voice-assistant/
+ank-interviewer/
 ├── app.py                  # FastAPI server, endpoint wiring, temp file cleanup
 ├── config.py               # Mode switch, API keys, interview tuning
 ├── requirements.txt
