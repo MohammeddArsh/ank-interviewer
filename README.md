@@ -36,7 +36,7 @@ Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS 
 ## Features
 
 - **AI mock interviewer** — realistic, sectioned interviews built from the JD + your resume
-- **Natural conversation** — warm greeting, section transitions that reference your answers, one probing follow-up per answer, closing with "any questions for me?"
+- **Natural conversation** — warm greeting, section transitions that reference your answers, one probing follow-up per answer, and an instant spoken farewell when the last question is answered (evaluation runs in the background while your results load)
 - **Adjustable length** — pick **Quick (~8 min)**, **Standard (~18 min)** or **Deep (~30 min)** during setup; controls total questions and whether probing follow-ups are asked
 - **Real-time transcription** — answers are streamed to `/ws/transcribe` and transcribed per phrase (Moonshine ONNX, tiny+quantized by default to fit small free-tier containers — set `MOONSHINE_MODEL=base MOONSHINE_PRECISION=float` for max quality; faster-whisper optional via `STT_BACKEND`), with a WAV-upload fallback. The tiny/quantized weights ship inside the repo (`audio/assets/moonshine/`), so cold boots never touch the Hugging Face Hub
 - **Final scorecard** — 0–100 score, strengths, areas to improve, and a spoken verdict
@@ -70,9 +70,9 @@ Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS 
 │  /interview/*                                        │
 │    ├── interview/extractor.py  (PDF/DOCX/TXT parse) │
 │    ├── interview/plan.py       (sections + questions)│
-│    ├── interview/engine.py     (follow-ups,          │
-│    │                            transitions, closing)│
-│    ├── interview/evaluator.py  (scorecard)           │
+│    ├── interview/engine.py     (follow-ups, transitions, │
+│    │                            instant farewell)       │
+│    ├── interview/evaluator.py  (scorecard)              │
 │    ├── audio/stt_local.py      (faster-whisper)      │
 │    └── audio/tts.py            (gTTS → subtitle chunks)
 │                                                       │
@@ -89,7 +89,7 @@ Your voice → faster-whisper transcription → OpenRouter interviewer → gTTS 
 | Web UI | `static/index.html` | Setup, interview, results; avatar + waveform + subtitles |
 | API Server | `app.py` | Routing, session management, cleanup |
 | Interview Plan | `interview/plan.py` | Sections + questions from JD & resume |
-| Interview Engine | `interview/engine.py` | Turn state machine: follow-ups, bridges, transitions, closing |
+| Interview Engine | `interview/engine.py` | Turn state machine: follow-ups, bridges, transitions, instant farewell (bg evaluation) |
 | Evaluator | `interview/evaluator.py` | Score + strengths / improvements / verdict |
 | File Extractor | `interview/extractor.py` | PDF / DOCX / TXT text extraction |
 | LLM OpenRouter | `brain/llm_openrouter.py` | OpenRouter free-tier chat + model fallbacks + retry |
@@ -240,7 +240,7 @@ ank-interviewer/
 │   └── index.html          # Full web UI — single file (avatar + waveform)
 ├── interview/              # Mock-interview engine
 │   ├── routes.py           # /interview/* endpoints
-│   ├── engine.py           # Session state machine (follow-ups, transitions, closing)
+│   ├── engine.py           # Session state machine (follow-ups, transitions, farewell)
 │   ├── plan.py             # Section + question generation
 │   ├── evaluator.py        # Scorecard generation
 │   ├── extractor.py        # PDF / DOCX / TXT text extraction
@@ -267,7 +267,7 @@ ank-interviewer/
 | `POST` | `/interview/start` | Builds the interview and returns the opener; body: `job_description`, `resume_text`, `interviewer` (JSON), `duration` (`quick`/`standard`/`deep`) |
 | `POST` | `/interview/prepare` | Builds the plan without speaking → `{plan, model}` (sections preview for the setup wizard) |
 | `POST` | `/interview/begin` | Delivers the greeting + first question (after `prepare`) |
-| `POST` | `/interview/answer` | Multipart audio answer → next interviewer turn (follow-up / transition / closing) |
+| `POST` | `/interview/answer` | Multipart audio answer → next interviewer turn (follow-up / transition / instant farewell) |
 | `POST` | `/interview/answer-text` | JSON `{transcript}` fast path — submits an already-transcribed answer, skipping server STT |
 | `WS` | `/ws/transcribe` | Real-time streaming transcription: browser sends raw Int16 LE 16 kHz mono PCM frames + `{"type":"stop"}`; server replies with `start` / `final` JSON events and a trailing `done` once every final has been delivered (client submits its transcript only after `done`, falling back to the WAV upload if the socket dies first) |
 | `POST` | `/interview/upload` | Upload PDF/DOCX/TXT → extracted text |

@@ -40,12 +40,6 @@ def fake_engine_complete(messages, temperature=0.7, max_tokens=512):
         return ("BRIDGE", ZERO_USAGE)
     if "previews the next section" in content:
         return ("TRANSITION", ZERO_USAGE)
-    if "has no questions" in content:
-        return ("CLOSING_NO", ZERO_USAGE)
-    if "has questions" in content:
-        return ("CLOSING_YES", ZERO_USAGE)
-    if "any questions" in content:
-        return ("CLOSING_OFFER", ZERO_USAGE)
     return ("UNKNOWN", ZERO_USAGE)
 
 
@@ -161,48 +155,45 @@ def test_full_flow_followup_bridge_transition_close(client):
     r = client.post("/interview/answer", files=files)
     assert r.json()["utterance"] == "FOLLOW_UP"
 
-    # follow-up answered -> closing offer
+    # follow-up answered -> farewell (last question; evaluation runs in the background)
     r = client.post("/interview/answer", files=files)
     d = r.json()
-    assert d["utterance"] == "CLOSING_OFFER"
-    assert d["state"]["phase"] == "closing"
-
-    # candidate's answer is substantive -> treated as having a question -> wrap-up + done
-    r = client.post("/interview/answer", files=files)
-    d = r.json()
-    assert d["utterance"] == "CLOSING_YES"
+    assert d["utterance"].startswith("That completes")
     assert d["done"] is True
-    assert d["evaluation"]["score"] == 82
-    assert d["evaluation"]["verdict"] == "Solid performance."
-    assert "evaluation_segments" in d
+    # eval may be present (thread won the race) or pending (thread still going) —
+    # either is valid; the point is we didn't block waiting for it.
 
 
-def test_candidate_with_questions_closes_with_ack(client):
+def test_farewell_line_matches_plan_closing(client):
+    """The farewell is the plan's closing line spoken verbatim — no LLM round-trip."""
     client.post("/interview/reset")
     _start(client)
     wav = io.BytesIO(b"RIFFfake-wav")
     files = {"audio": ("a.webm", wav, "audio/webm")}
-    for _ in range(8):  # reach closing phase
-        client.post("/interview/answer", files=files)
-    r = client.post("/interview/answer", files=files)
+    for _ in range(8):
+        r = client.post("/interview/answer", files=files)
     d = r.json()
-    assert d["utterance"] == "CLOSING_YES"  # "My answer" is treated as a question
+    assert d["utterance"].startswith("That completes")
     assert d["done"] is True
-    assert d["evaluation"]["score"] == 82
 
 
-def test_candidate_no_questions_closes(client, monkeypatch):
+def test_natural_completion_pending_then_ready(client):
+    """After the farewell, evaluation appears via the polling endpoint."""
     client.post("/interview/reset")
     _start(client)
-    monkeypatch.setattr("interview.routes.transcribe", lambda p: "No, I don't have any questions")
     wav = io.BytesIO(b"RIFFfake-wav")
     files = {"audio": ("a.webm", wav, "audio/webm")}
-    for _ in range(8):  # reach closing phase
+    for _ in range(8):
         client.post("/interview/answer", files=files)
-    r = client.post("/interview/answer", files=files)
-    d = r.json()
-    assert d["utterance"] == "CLOSING_NO"
-    assert d["done"] is True
+    # May already be ready (mock evaluate is instant) or still pending — poll
+    # until ready to prove the bg-thread → /results path works either way.
+    for _ in range(100):
+        j = client.get("/interview/results").json()
+        if j.get("ready"):
+            assert j["evaluation"]["score"] == 82
+            return
+        time.sleep(0.05)
+    raise AssertionError("evaluation never became ready")
 
 
 def test_skip_moves_forward(client):
@@ -220,7 +211,8 @@ def test_end_early_returns_evaluation(client):
     r = client.post("/interview/end")
     d = r.json()
     assert d["done"] is True
-    assert d["pending"] is True
+    # eval may already be ready (mock is instant) or still pending — prove
+    # the polling path works in either case.
     for _ in range(100):
         j = client.get("/interview/results").json()
         if j.get("ready"):

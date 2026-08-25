@@ -41,8 +41,12 @@ def _utterance_response(utterance: str, done: bool = False, evaluation: dict = N
         resp["transcript"] = transcript
     if done:
         resp["done"] = True
-        resp["evaluation"] = evaluation or _session.evaluation
-        resp["evaluation_segments"] = _evaluation_segments(resp["evaluation"])
+        evaluation = evaluation or _session.evaluation
+        if evaluation:
+            resp["evaluation"] = evaluation
+            resp["evaluation_segments"] = _evaluation_segments(evaluation)
+        else:
+            resp["pending"] = True  # scored on a background thread; client polls /interview/results
     return resp
 
 

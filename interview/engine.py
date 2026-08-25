@@ -1,11 +1,10 @@
 """InterviewSession — the state machine that runs a natural, sectioned interview.
 
 Flow: greeting → sections (each: question → answer → follow-up → …) →
-section transitions → closing → done.
+section transitions → instant farewell (evaluation runs in background) → done.
 """
 
 import random
-import re
 import threading
 import time
 
@@ -33,24 +32,14 @@ _TRANSITION_INS = (
     "acknowledges their answer, previews the next section, then asks its first question. "
     "Sound like a real interviewer smoothly moving between topics."
 )
-_CLOSING_OFFER_INS = (
-    "The interview is complete. Thank the candidate warmly, note it was a pleasure, and ask "
-    "whether they have any questions about the role or the team. End your line with that question."
-)
-_CLOSING_NO_QUESTIONS_INS = (
-    "The candidate has no questions. Deliver a warm, final closing — thank them again and wish "
-    "them well with the next steps. End the interview."
-)
-_CLOSING_HAS_QUESTIONS_INS = (
-    "The candidate has questions. Answer graciously and briefly, note that any company-specific "
-    "details are best confirmed with the hiring team, then wrap up warmly and end the interview."
-)
 
-_NO_QUESTION_PHRASES = {
-    "no", "nope", "nah", "none", "nothing", "not really", "no questions",
-    "that's all", "thats all", "that's it", "thats it", "that is it",
-    "im good", "i'm good", "no thank you", "not that i can think of",
-}
+# Spoken verbatim the moment the last question is answered. Deliberately not
+# LLM-generated: the sign-off starts instantly while evaluation runs on a
+# background thread, so there is no silent wait before the feedback page.
+_FAREWELL = (
+    "That completes our interview. Thank you for your time. "
+    "We'll present your feedback now."
+)
 
 # Phrases free reasoning models use when they leak their internal thinking
 # instead of just speaking as the interviewer.
@@ -78,17 +67,6 @@ def _is_meta_rambling(text: str) -> bool:
     """True when a model reply narrates its reasoning instead of speaking."""
     low = " ".join((text or "").lower().split())
     return any(m in low for m in _META_MARKERS)
-
-
-def _candidate_has_questions(text: str) -> bool:
-    t = " ".join((text or "").lower().split())
-    if not t:
-        return False
-    if t in _NO_QUESTION_PHRASES:
-        return False
-    if re.match(r"^(no|nope|nah|none|nothing|not really|no questions)", t):
-        return False
-    return True
 
 
 class InterviewSession:
@@ -163,7 +141,7 @@ class InterviewSession:
                 self._append_interviewer(utterance)
                 return self._respond(utterance)
             utterance = self._advance_question()
-            return self._respond(utterance)
+            return self._respond(utterance, done=self.phase == "done")
 
         if self.phase == "answering_followup":
             self.follow_ups_used += 1
@@ -172,17 +150,7 @@ class InterviewSession:
                 self._append_interviewer(utterance)
                 return self._respond(utterance)
             utterance = self._advance_question()
-            return self._respond(utterance)
-
-        if self.phase == "closing":
-            if is_skip or not _candidate_has_questions(candidate_text):
-                utterance = self._generate(_CLOSING_NO_QUESTIONS_INS)
-            else:
-                utterance = self._generate(_CLOSING_HAS_QUESTIONS_INS)
-            self._append_interviewer(utterance)
-            self.phase = "done"
-            self.evaluation = self._build_evaluation()
-            return self._respond(utterance, done=True)
+            return self._respond(utterance, done=self.phase == "done")
 
         return {"utterance": "", "state": self.build_state()}
 
@@ -241,10 +209,12 @@ class InterviewSession:
             )
             return self._generate(_TRANSITION_INS, progress=progress, upcoming=section["questions"][0])
 
-        # All sections done — close the interview.
+        # All sections done — sign off instantly, score in the background.
         self.current_question = None
-        self.phase = "closing"
-        return self._generate(_CLOSING_OFFER_INS)
+        self.phase = "done"
+        self._start_evaluation()
+        self._append_interviewer(_FAREWELL)
+        return _FAREWELL
 
     # ---- helpers -----------------------------------------------------------
 
@@ -311,21 +281,6 @@ class InterviewSession:
             return f"Thanks for that. Let's move to the next question. {upcoming}".strip()
         if instruction == _TRANSITION_INS:
             return f"Great. Let's move to the next section. {upcoming}".strip()
-        if instruction == _CLOSING_OFFER_INS:
-            return (
-                "That brings us to the end of the interview — thank you so much for your time. "
-                "Do you have any questions about the role or the team?"
-            )
-        if instruction == _CLOSING_NO_QUESTIONS_INS:
-            return (
-                "Thank you for your time today — it was a pleasure speaking with you. "
-                "I wish you all the best with the next steps."
-            )
-        if instruction == _CLOSING_HAS_QUESTIONS_INS:
-            return (
-                "Thanks for your questions — the hiring team can confirm the finer details. "
-                "It was great meeting you; best of luck with next steps."
-            )
         if upcoming:
             return f"Let's keep going. {upcoming}".strip()
         return "Thank you — that brings us to the end of the interview."

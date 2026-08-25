@@ -1288,7 +1288,16 @@ function handleAnswerResponse(data, ep) {
   setSubtitle(data.transcript, 'you');
   setTimeout(() => {
     if (ep !== uiEpoch) return;
-    if (data.done) { renderResults(data.evaluation, data.evaluation_segments); return; }
+    if (data.done) {
+      if (data.pending && data.segments && data.segments.length) {
+        playSegments(data.segments, () => pollResults(ep));
+      } else if (data.pending) {
+        pollResults(ep);
+      } else {
+        renderResults(data.evaluation, data.evaluation_segments);
+      }
+      return;
+    }
     playSegments(data.segments, () => { isBusy = false; setMicEnabled(true); updateStateUI(); });
   }, 900);
 }
@@ -1348,7 +1357,16 @@ async function skipQuestion() {
     session = data.state;
     lastModel = data.model;
     addTranscript('you', '(skipped)');
-    if (data.done) { renderResults(data.evaluation, data.evaluation_segments); return; }
+    if (data.done) {
+      if (data.pending && data.segments && data.segments.length) {
+        playSegments(data.segments, () => pollResults(ep));
+      } else if (data.pending) {
+        pollResults(ep);
+      } else {
+        renderResults(data.evaluation, data.evaluation_segments);
+      }
+      return;
+    }
     playSegments(data.segments, () => { resetBusy(); updateStateUI(); });
   } catch (e) { resetBusy(); }
 }
