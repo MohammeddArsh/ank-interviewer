@@ -11,11 +11,10 @@ services:
         value: 3.13.4
       - key: OPENROUTER_API_KEY
         sync: false
-      # Pinned free-model list: skips the blocking /models discovery call on the
-      # first request and keeps worst-case latency bounded. `openrouter/free`
-      # is the always-available fallback that advances past retired slugs.
-      - key: OPENROUTER_MODELS
-        value: '["qwen/qwen3-next-80b-a3b-instruct:free","google/gemma-4-26b-a4b-it:free","openrouter/free"]'
+      # Free-tier models rotate constantly, so we let the app auto-discover the
+      # currently-free list at runtime (cached 6h, quality-ordered) instead of
+      # pinning slugs that rot. Discovery is bounded by a 20s timeout and runs
+      # off the event loop, so it can't stall the health check.
       - key: STT_BACKEND
         value: moonshine
       # tiny+quantized keeps peak RSS ~355MB (measured), fitting the 512MB

@@ -28,20 +28,23 @@ FREE_ROUTER = "openrouter/free"
 
 # Curated quality priority for discovered free models (best conversational
 # instruct models first). Ordered prefix match, then by context length.
+# Prefixes are matched against *current* free slugs, so list members can be
+# retired without breaking discovery (unknown prefixes simply never match).
 _PRIORITY_PREFIXES = [
-    "qwen/qwen3-next",
-    "nvidia/nemotron-3",
-    "google/gemma-4-31b",
-    "google/gemma-3-27b",
-    "meta-llama/llama-3.3-70b",
-    "meta-llama/llama-3.1-405b",
+    "minimax/minimax-m",
+    "nvidia/nemotron-3.5",
+    "nvidia/nemotron-3-ultra",
+    "nvidia/nemotron-3-super",
+    "google/gemma-4-",
+    "google/gemma-3-",
     "moonshotai/kimi-k2",
-    "z-ai/glm-4",
+    "z-ai/glm-",
     "openai/gpt-oss",
+    "meta-llama/llama-3.3-70b",
     "deepseek/deepseek-v3",
     "deepseek/deepseek-r1",
     "mistralai/mistral-small",
-    "mistralai/mistral-7b",
+    "thinkingmachines/inkling",
 ]
 
 MAX_RETRIES = 2

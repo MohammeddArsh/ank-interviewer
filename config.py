@@ -21,8 +21,9 @@ OPENROUTER_MODELS = json.loads(os.getenv("OPENROUTER_MODELS", "[]"))
 # Used only if discovery fails (no key / network down). Keep recent, still-known
 # free slugs + the openrouter/free router as the ultimate always-available fallback.
 BOOTSTRAP_OPENROUTER_MODELS = [
-    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "minimax/minimax-m3:free",
     "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3.5-lightning:free",
     "google/gemma-4-31b-it:free",
     "google/gemma-4-26b-a4b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free",

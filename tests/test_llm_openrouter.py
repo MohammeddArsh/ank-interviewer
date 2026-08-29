@@ -69,9 +69,10 @@ class TestDiscovery:
             ]),
         )
         models = mod._discover_free_models()
-        assert models[0] == "qwen/qwen3-next-80b-a3b-instruct:free"
-        assert models[1] == "nvidia/nemotron-3-ultra-550b-a55b:free"
-        assert "some/random-small:free" in models
+        # Priority-known model first; retired-slug (qwen) falls to the
+        # "unmatched" tier ordered by context length, still before small models.
+        assert models[0] == "nvidia/nemotron-3-ultra-550b-a55b:free"
+        assert models.index("qwen/qwen3-next-80b-a3b-instruct:free") < models.index("some/random-small:free")
         assert "openrouter/free" in models
         assert "meta-llama/llama-3.3-70b-instruct:free" not in models
 
