@@ -639,6 +639,7 @@ let ttsAnalyser = null;
 let micAnalyser = null;
 let speakerState = 'idle';   // 'idle' | 'speaking' | 'listening'
 let currentSpeakerText = '';
+let endFlow = false;         // true once the final reply is in — don't show "Your turn"
 let transcriptLines = [];
 let uiEpoch = 0;             // bumped on reset — invalidates stale async flows
 
@@ -825,6 +826,7 @@ async function startInterview() {
    INTERVIEW SCREEN
 ================================================================ */
 function showInterview() {
+  endFlow = false;
   $('screen-setup').style.display = 'none';
   $('screen-results').classList.remove('visible');
   $('screen-interview').classList.add('visible');
@@ -1050,7 +1052,7 @@ function playNextSegment(onDone) {
   if (segIdx >= segments.length) {
     isPlaying = false;
     speakerState = 'idle';
-    setSubtitle(session?.current_question || 'Your turn — go ahead.', 'ai');
+    if (!endFlow) setSubtitle(session?.current_question || 'Your turn — go ahead.', 'ai');
     onDone && onDone();
     return;
   }
@@ -1289,8 +1291,10 @@ function handleAnswerResponse(data, ep) {
   setTimeout(() => {
     if (ep !== uiEpoch) return;
     if (data.done) {
+      endFlow = true;
+      setSubtitle('Preparing your results…', 'ai');
       if (data.pending && data.segments && data.segments.length) {
-        playSegments(data.segments, () => pollResults(ep));
+        playSegments(data.segments, () => { if (ep !== uiEpoch) return; setSubtitle('Preparing your results…', 'ai'); pollResults(ep); });
       } else if (data.pending) {
         pollResults(ep);
       } else {
@@ -1358,8 +1362,10 @@ async function skipQuestion() {
     lastModel = data.model;
     addTranscript('you', '(skipped)');
     if (data.done) {
+      endFlow = true;
+      setSubtitle('Preparing your results…', 'ai');
       if (data.pending && data.segments && data.segments.length) {
-        playSegments(data.segments, () => pollResults(ep));
+        playSegments(data.segments, () => { if (ep !== uiEpoch) return; setSubtitle('Preparing your results…', 'ai'); pollResults(ep); });
       } else if (data.pending) {
         pollResults(ep);
       } else {
@@ -1389,17 +1395,23 @@ async function endInterview() {
 }
 
 async function pollResults(ep) {
-  for (let i = 0; i < 60; i++) {
+  // Evaluation runs on a background thread and always completes eventually, so
+  // keep polling (the page shows "Preparing your results…" meanwhile) instead of
+  // giving up after a fixed budget and stranding the user on "Your turn".
+  let pollCount = 0;
+  for (;;) {
     await new Promise(r => setTimeout(r, 1500));
     if (ep !== uiEpoch) return;
+    pollCount++;
+    setSubtitle(pollCount % 20 === 0 ? 'Still preparing your results…' : 'Preparing your results…', 'ai');
     try {
       const res = await fetch('/interview/results');
       const data = await res.json();
       if (ep !== uiEpoch) return;
+      if (data.error) { setSubtitle(data.error, 'ai'); return; }
       if (data.ready) { renderResults(data.evaluation, data.evaluation_segments); return; }
     } catch (e) {}
   }
-  resetBusy();
 }
 
 function setControlsDisabled(disabled) {
@@ -1434,6 +1446,7 @@ document.addEventListener('keyup', (e) => {
 let feedbackSegments = [];
 
 function renderResults(evaluation, evalSegments) {
+  endFlow = false;
   feedbackSegments = evalSegments || [];
   isPlaying = false;
   speakerState = 'idle';
@@ -1472,6 +1485,7 @@ function playFeedback() {
 ================================================================ */
 async function newInterview() {
   uiEpoch++;
+  endFlow = false;
   closeLive();
   stopSpeaking();
   isBusy = false;

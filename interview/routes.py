@@ -57,7 +57,7 @@ def _utterance_response(utterance: str, done: bool = False, evaluation: dict = N
         evaluation = evaluation or _session.evaluation
         if evaluation:
             resp["evaluation"] = evaluation
-            resp["evaluation_segments"] = _evaluation_segments(evaluation)
+            resp["evaluation_segments"] = _cached_evaluation_segments(evaluation)
         else:
             resp["pending"] = True  # scored on a background thread; client polls /interview/results
     return resp
@@ -74,6 +74,17 @@ def _evaluation_segments(evaluation: dict) -> list:
         parts.append("Areas to work on: " + "; ".join(str(i) for i in improvements))
     text = " ".join(p for p in parts if p.strip())
     return speak_to_chunks(text)
+
+
+def _cached_evaluation_segments(evaluation: dict) -> list:
+    """Evaluation TTS is expensive (gTTS) and /results is polled by the client,
+    so render it once and reuse the cached chunks instead of regenerating them
+    on every poll."""
+    cached = getattr(_session, "_eval_segments_cache", None)
+    if cached is None:
+        cached = _evaluation_segments(evaluation)
+        _session._eval_segments_cache = cached
+    return cached
 
 
 @router.post("/upload")
@@ -274,7 +285,7 @@ def results():  # noqa: B008
     return {
         "ready": True,
         "evaluation": session.evaluation,
-        "evaluation_segments": _evaluation_segments(session.evaluation),
+        "evaluation_segments": _cached_evaluation_segments(session.evaluation),
     }
 
 

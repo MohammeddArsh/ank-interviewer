@@ -81,6 +81,20 @@ def evaluation_prompt(job_description: str, resume_text: str, transcript: str) -
     return f"""You are an expert interview evaluator. Assess the candidate's performance in the mock interview below
 against the target role. Be honest, specific and constructive. Base every point on the actual transcript.
 
+SCORING RUBRIC (calibrate against typical candidates, not a perfection bar):
+- Start from a baseline of 70 for a competent, prepared candidate.
+- Adjust the baseline modestly per answer, using real evidence from the transcript:
+  strong, specific answers add up to +10; vague, short, or off-target answers deduct up to -10.
+  Examples: five strong answers ≈ 88-92; solid but generic answers ≈ 60-70; several weak or
+  incomplete answers ≈ 40-50; mostly missed or skipped questions ≈ under 40.
+- Bands: 85-100 exceptional · 70-84 strong · 55-69 competent with gaps · 40-54 below average ·
+  <40 weak. Use extremes (<30 or >95) only for clearly catastrophic or flawless performances.
+- IMPORTANT: always list 2 to 4 improvements. Each must be a concrete, actionable gap visible in
+  the transcript (e.g. "answers lacked a concrete example", "did not mention the role's key skill").
+  If there is genuinely little to improve, the score must be 85 or higher.
+- Keep score, strengths and improvements consistent: a score below 50 must list at least 3
+  substantial improvements; a score of 80+ must show strong, specific strengths.
+
 Respond with JSON ONLY (no markdown, no prose outside the JSON, no code fences), with this exact shape:
 {{
   "score": 0,

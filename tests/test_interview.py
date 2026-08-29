@@ -223,6 +223,82 @@ def test_end_early_returns_evaluation(client):
     raise AssertionError("evaluation never became ready")
 
 
+def test_evaluation_segments_rendered_once_and_cached(client, monkeypatch):
+    """/interview/results is polled by the client; the spoken feedback must be
+    generated once per session, not regenerated on every poll."""
+    calls = {"n": 0}
+
+    def fake_chunks(text):
+        calls["n"] += 1
+        return [{"text": str(text), "audio_url": "/audio/eval.mp3", "display_text": str(text)}]
+
+    monkeypatch.setattr("interview.routes.speak_to_chunks", fake_chunks)
+    client.post("/interview/reset")
+    _start(client)
+    n_before = calls["n"]
+    assert client.post("/interview/end").json()["done"] is True
+    first = None
+    for _ in range(100):
+        j = client.get("/interview/results").json()
+        if j.get("ready"):
+            first = j
+            break
+        time.sleep(0.05)
+    assert first is not None and first["ready"]
+    second = client.get("/interview/results").json()
+    assert second["evaluation_segments"] == first["evaluation_segments"]
+    assert calls["n"] - n_before == 1
+
+
+def test_evaluator_retries_on_harsh_score_without_improvements(monkeypatch):
+    from interview import evaluator
+
+    calls = {"n": 0}
+
+    def fake_complete(messages, temperature=0.5, max_tokens=1000):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # internally inconsistent: harsh score, no improvement items
+            return (
+                '{"score": 32, "strengths": ["Polite"], "improvements": [], "verdict": "ok"}',
+                ZERO_USAGE,
+            )
+        # scoring in the a failing band unblocked by a "clear gap" would prove the bug
+        return (
+            '{"score": 68, "strengths": ["Clear structure"], "improvements": ["Add concrete examples"], "verdict": "better"}',
+            ZERO_USAGE,
+        )
+
+    monkeypatch.setattr("interview.evaluator.complete", fake_complete)
+    result = evaluator.evaluate(
+        "jd", "resume", [{"role": "candidate", "text": "my answer"}]
+    )
+    assert calls["n"] == 2
+    assert result["score"] == 68
+    assert result["improvements"] == ["Add concrete examples"]
+
+
+def test_evaluator_does_not_retry_on_consistent_output(monkeypatch):
+    from interview import evaluator
+
+    calls = {"n": 0}
+
+    def fake_complete(messages, temperature=0.5, max_tokens=1000):
+        calls["n"] += 1
+        # strict score but improvements present → consistent, no retry
+        return (
+            '{"score": 45, "strengths": ["Polite"], "improvements": ["Be more specific"], "verdict": "ok"}',
+            ZERO_USAGE,
+        )
+
+    monkeypatch.setattr("interview.evaluator.complete", fake_complete)
+    result = evaluator.evaluate(
+        "jd", "resume", [{"role": "candidate", "text": "my answer"}]
+    )
+    assert calls["n"] == 1
+    assert result["score"] == 45
+
+
 def test_state_before_start(client):
     client.post("/interview/reset")
     r = client.get("/interview/state")
