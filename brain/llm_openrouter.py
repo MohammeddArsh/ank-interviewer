@@ -12,9 +12,14 @@ from config import (
     OPENROUTER_MODELS,
 )
 
+# The OpenAI SDK's default timeout is 600 s and it adds its own retry layer on
+# top of ours below. Bound both: the app route already runs in a worker thread,
+# so a hung upstream should fail fast and fall back instead of freezing the box.
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY or "missing-api-key",
+    timeout=30.0,
+    max_retries=0,
 )
 
 # OpenRouter's free router — always available, picks a working free model per
@@ -39,8 +44,13 @@ _PRIORITY_PREFIXES = [
     "mistralai/mistral-7b",
 ]
 
-MAX_RETRIES = 3
-_MAX_DISCOVERED = 6
+MAX_RETRIES = 2
+_MAX_DISCOVERED = 3
+# Hard cap on distinct completion attempts per request (models tried x retries).
+# Free-tier models fail together when the free lane is down; there is no point
+# grinding through the whole list. With each attempt bounded by the client
+# timeout above, worst-case request latency stays ~2-3 min instead of ~10+.
+_MAX_TOTAL_ATTEMPTS = 6
 
 _cache = {"models": None, "fetched_at": 0.0}
 _lock = threading.Lock()
@@ -115,8 +125,17 @@ def _create(messages, temperature, max_tokens):
     """
     models = _model_list()
     last_exc = None
+    attempts = 0
+    finished = False
     for model in models:
+        if finished:
+            break
         for attempt in range(MAX_RETRIES):
+            if attempts >= _MAX_TOTAL_ATTEMPTS:
+                print(f"[LLM] reached {_MAX_TOTAL_ATTEMPTS}-attempt budget; giving up")
+                finished = True
+                break
+            attempts += 1
             try:
                 resp = client.chat.completions.create(
                     model=model,
@@ -147,7 +166,7 @@ def _create(messages, temperature, max_tokens):
                 if attempt == MAX_RETRIES - 1:
                     print(f"[LLM] {model} failed after retries: {e}")
                     break
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
+                time.sleep(min((2 ** attempt) + random.uniform(0, 1), 2.0))
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("all OpenRouter models failed")

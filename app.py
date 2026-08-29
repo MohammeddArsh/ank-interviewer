@@ -73,10 +73,10 @@ def index():
 
 
 @app.post("/chat")
-async def chat(audio: UploadFile = File(...)):  # noqa: B008 - FastAPI dependency injection
+def chat(audio: UploadFile = File(...)):  # noqa: B008
     audio_path = os.path.join(TEMP_DIR, "upload_" + uuid.uuid4().hex + ".wav")
     with open(audio_path, "wb") as f:
-        f.write(await audio.read())
+        f.write(audio.file.read())
 
     user_text = transcribe(audio_path)
     try:

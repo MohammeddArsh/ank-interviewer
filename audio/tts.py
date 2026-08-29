@@ -39,22 +39,29 @@ def speak_to_chunks(text: str) -> list:
     """Split text into subtitle-synced TTS chunks.
 
     Returns [{"text": str, "audio_url": str}, ...]. Chunks are generated in
-    parallel so multi-sentence replies don't feel slow.
+    parallel so multi-sentence replies don't feel slow. Concurrency stays low
+    and each chunk is time-bounded: a hung gTTS (Google) call drops that one
+    chunk instead of hanging the reply, which matters on shared free-tier CPUs.
     """
     chunks = _split_sentences(text)
     if not chunks:
         return []
 
-    paths = []
-    with ThreadPoolExecutor(max_workers=min(6, len(chunks))) as pool:
+    results = []
+    with ThreadPoolExecutor(max_workers=min(2, len(chunks))) as pool:
+        futures = []
         for chunk in chunks:
             tmp_path = os.path.join(TEMP_DIR, "tts_" + uuid.uuid4().hex + ".mp3")
-            paths.append((chunk, pool.submit(_render_chunk, chunk, tmp_path)))
+            futures.append((chunk, pool.submit(_render_chunk, chunk, tmp_path)))
 
-    return [
-        {"text": chunk, "audio_url": "/audio/" + os.path.basename(fut.result())}
-        for chunk, fut in paths
-    ]
+        for chunk, fut in futures:  # in-order: subtitle sync relies on order
+            try:
+                audio_url = fut.result(timeout=8)
+            except Exception as e:
+                print(f"[TTS] chunk render failed/timed out: {e!r}")
+                continue
+            results.append({"text": chunk, "audio_url": "/audio/" + os.path.basename(audio_url)})
+    return results
 
 
 def _render_chunk(text: str, tmp_path: str) -> str:

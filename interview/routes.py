@@ -1,6 +1,7 @@
 """HTTP routes for the AI mock interviewer."""
 
 import os
+import threading
 import uuid
 
 from fastapi import APIRouter, File, Form, UploadFile
@@ -17,17 +18,29 @@ from interview.engine import InterviewSession
 router = APIRouter(prefix="/interview")
 
 _session: InterviewSession = None
+# Sync routes run on a thread pool, so the shared session (and the background
+# evaluation thread) can be touched from several threads at once.
+_session_lock = threading.Lock()
 
 
 def _reset_session():
     global _session
-    _session = None
+    with _session_lock:
+        _session = None
 
 
 def _require_session():
     if _session is None:
         raise ValueError("No active interview. Start one first.")
     return _session
+
+
+def _with_session():
+    with _session_lock:
+        session = _session
+    if session is None:
+        raise ValueError("No active interview. Start one first.")
+    return session
 
 
 def _utterance_response(utterance: str, done: bool = False, evaluation: dict = None, transcript: str = None) -> dict:
@@ -64,8 +77,8 @@ def _evaluation_segments(evaluation: dict) -> list:
 
 
 @router.post("/upload")
-async def upload(file: UploadFile = File(...)):  # noqa: B008
-    contents = await file.read()
+def upload(file: UploadFile = File(...)):  # noqa: B008
+    contents = file.file.read()
     if len(contents) > MAX_UPLOAD_BYTES:
         return JSONResponse({"error": "File too large (max 5 MB)."}, status_code=413)
 
@@ -88,14 +101,15 @@ async def upload(file: UploadFile = File(...)):  # noqa: B008
 
 
 @router.post("/start")
-async def start(job_description: str = Form(""), resume_text: str = Form(""),
-                interviewer: str = Form("{}"),
-                duration: str = Form(DEFAULT_DURATION)):  # noqa: B008
+def start(job_description: str = Form(""), resume_text: str = Form(""),
+          interviewer: str = Form("{}"),
+          duration: str = Form(DEFAULT_DURATION)):  # noqa: B008
     global _session
     created = _build_session(job_description, resume_text, interviewer, duration)
     if isinstance(created, JSONResponse):
         return created
-    _session = created
+    with _session_lock:
+        _session = created
     try:
         result = _session.start()
     except Exception as e:
@@ -106,14 +120,15 @@ async def start(job_description: str = Form(""), resume_text: str = Form(""),
 
 
 @router.post("/prepare")
-async def prepare(job_description: str = Form(""), resume_text: str = Form(""),
-                  interviewer: str = Form("{}"),
-                  duration: str = Form(DEFAULT_DURATION)):  # noqa: B008
+def prepare(job_description: str = Form(""), resume_text: str = Form(""),
+            interviewer: str = Form("{}"),
+            duration: str = Form(DEFAULT_DURATION)):  # noqa: B008
     global _session
     created = _build_session(job_description, resume_text, interviewer, duration)
     if isinstance(created, JSONResponse):
         return created
-    _session = created
+    with _session_lock:
+        _session = created
     try:
         result = _session.prepare()
     except Exception as e:
@@ -124,7 +139,7 @@ async def prepare(job_description: str = Form(""), resume_text: str = Form(""),
 
 
 @router.post("/begin")
-async def begin():  # noqa: B008
+def begin():  # noqa: B008
     try:
         session = _require_session()
     except ValueError as e:
@@ -168,7 +183,7 @@ def _audio_extension(content_type: str) -> str:
 
 
 @router.post("/answer")
-async def answer(audio: UploadFile = File(...)):  # noqa: B008
+def answer(audio: UploadFile = File(...)):  # noqa: B008
     try:
         session = _require_session()
     except ValueError as e:
@@ -176,7 +191,7 @@ async def answer(audio: UploadFile = File(...)):  # noqa: B008
 
     audio_path = os.path.join(TEMP_DIR, "upload_" + uuid.uuid4().hex + _audio_extension(audio.content_type))
     with open(audio_path, "wb") as f:
-        f.write(await audio.read())
+        f.write(audio.file.read())
     try:
         user_text = transcribe(audio_path)
     except Exception:
@@ -204,7 +219,7 @@ class TranscriptIn(BaseModel):
 
 
 @router.post("/answer-text")
-async def answer_text(payload: TranscriptIn):
+def answer_text(payload: TranscriptIn):
     """Fast path: the client already holds a streamed transcript, so skip STT."""
     try:
         session = _require_session()
@@ -225,7 +240,7 @@ async def answer_text(payload: TranscriptIn):
 
 
 @router.post("/skip")
-async def skip():  # noqa: B008
+def skip():  # noqa: B008
     try:
         session = _require_session()
     except ValueError as e:
@@ -239,9 +254,9 @@ async def skip():  # noqa: B008
 
 
 @router.post("/end")
-async def end():  # noqa: B008
+def end():  # noqa: B008
     try:
-        session = _require_session()
+        session = _with_session()
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     result = session.end_early()
@@ -249,7 +264,7 @@ async def end():  # noqa: B008
 
 
 @router.get("/results")
-async def results():  # noqa: B008
+def results():  # noqa: B008
     try:
         session = _require_session()
     except ValueError as e:
@@ -264,7 +279,7 @@ async def results():  # noqa: B008
 
 
 @router.get("/state")
-async def state():  # noqa: B008
+def state():  # noqa: B008
     try:
         session = _require_session()
     except ValueError:
@@ -273,6 +288,6 @@ async def state():  # noqa: B008
 
 
 @router.post("/reset")
-async def reset():  # noqa: B008
+def reset():  # noqa: B008
     _reset_session()
     return {"status": "reset"}

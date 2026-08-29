@@ -3,7 +3,7 @@ services:
     name: ank-voice-assistant
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 75
     envVars:
       # Match CI/Docker (py3.13) so dependency pins resolve identically
       # everywhere and Render's default Python can't drift underneath us.
@@ -11,6 +11,11 @@ services:
         value: 3.13.4
       - key: OPENROUTER_API_KEY
         sync: false
+      # Pinned free-model list: skips the blocking /models discovery call on the
+      # first request and keeps worst-case latency bounded. `openrouter/free`
+      # is the always-available fallback that advances past retired slugs.
+      - key: OPENROUTER_MODELS
+        value: '["qwen/qwen3-next-80b-a3b-instruct:free","google/gemma-4-26b-a4b-it:free","openrouter/free"]'
       - key: STT_BACKEND
         value: moonshine
       # tiny+quantized keeps peak RSS ~355MB (measured), fitting the 512MB

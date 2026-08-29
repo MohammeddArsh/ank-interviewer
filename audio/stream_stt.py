@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -48,11 +49,29 @@ VAD_WINDOW = 512             # silero expects multiples of 512 samples @16k
 # One worker => transcriptions never interleave on CPU.
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
 
-try:  # bundled Silero ONNX via onnxruntime; degrade to RMS if missing
-    from audio.silero_vad import get_vad
-    _vad = get_vad()
-except Exception:
-    _vad = None
+_UNSET = object()        # sentinel: VAD not loaded yet
+_vad = _UNSET
+_vad_lock = threading.Lock()
+
+
+def _get_vad():
+    """Lazily load the bundled Silero ONNX model once; degrade to RMS if missing.
+
+    Loaded on first use (not import) so boot memory stays flat on small
+    instances that never open a streaming socket.
+    """
+    global _vad
+    if _vad is not _UNSET:
+        return _vad or None
+    with _vad_lock:
+        if _vad is not _UNSET:
+            return _vad or None
+        try:  # bundled Silero ONNX via onnxruntime; degrade to RMS if missing
+            from audio.silero_vad import get_vad
+            _vad = get_vad()
+        except Exception:
+            _vad = None
+    return _vad
 
 
 def _transcribe_pcm(pcm_int16: np.ndarray) -> str:
@@ -73,7 +92,8 @@ class VadGate:
 
     def decide(self, pcm_int16: np.ndarray) -> bool:
         x = pcm_int16.astype(np.float32) / 32768.0
-        if _vad is None:
+        vad = _get_vad()
+        if vad is None:
             rms = float(np.sqrt(np.mean(x * x))) if x.size else 0.0
             speech = rms > max(self.noise_floor * 3.0, 0.012)
             self.noise_floor = 0.95 * self.noise_floor + 0.05 * min(rms, self.noise_floor * 4.0)
@@ -83,7 +103,7 @@ class VadGate:
         self._tail = buf[usable:]
         if usable == 0:
             return False
-        probs = np.asarray(_vad(buf[:usable]))
+        probs = np.asarray(vad(buf[:usable]))
         return bool(probs.size and float(np.max(probs)) >= self.threshold)
 
 
